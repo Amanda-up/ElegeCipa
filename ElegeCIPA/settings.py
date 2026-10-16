@@ -56,7 +56,7 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = False
 SECURE_HSTS_PRELOAD = False
 
 
-CSRF_COOKIE_SAMESITE = 'None'  # Ou 'None' se tiver problemas
+CSRF_COOKIE_SAMESITE = 'Lax'  # Adequado para cookies CSRF em HTTP local
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_HTTPONLY = False  # Permite JavaScript acessar
 CSRF_USE_SESSIONS = False

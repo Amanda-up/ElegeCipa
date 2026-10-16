@@ -3,6 +3,7 @@ from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, logout, get_user_model
 from django.contrib import messages
 from django.http import HttpResponse
+from django.http import JsonResponse
 from django.db.models import Count
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
@@ -14,6 +15,12 @@ from django.utils.timezone import localtime
 from .forms import EleitorLoginForm, AdminLoginForm
 from .models import Eleitor, Candidato, Voto, Eleicao
 from .utils import hash_matricula
+from .senior import (
+    SeniorConnectionError,
+    buscar_colaborador_por_matricula,
+    buscar_colaboradores,
+    cpf_do_colaborador,
+)
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django.core.exceptions import ValidationError
@@ -39,23 +46,31 @@ def login_view(request):
             eleitor_form = EleitorLoginForm(request.POST)
             if eleitor_form.is_valid():
                 matricula = eleitor_form.cleaned_data["matricula"].strip()
+                matricula = matricula.lstrip("0") or "0"
                 cpf = eleitor_form.cleaned_data["cpf"].strip()
-                h_matricula = hash_matricula(matricula)
-                h_cpf = hash_matricula(cpf)
-
                 try:
-                    eleitor = Eleitor.objects.get(matricula_hash=h_matricula, cpf_hash=h_cpf)
-                    if not eleitor.user:
-                        user = User.objects.create(username=f"eleitor_{eleitor.id}")
-                        eleitor.user = user
-                        eleitor.save()
-                    login(request, eleitor.user)
-
-                    # CORREÇÃO: Redirecionar para a URL 'candidatos' em vez de renderizar o template
-                    return redirect("candidatos")  # MUDANÇA AQUI
-                    
-                except Eleitor.DoesNotExist:
-                    error_eleitor = "Matrícula ou CPF inválidos."
+                    cpf_senior = cpf_do_colaborador(matricula)
+                except SeniorConnectionError:
+                    error_eleitor = "Não foi possível validar seus dados agora. Tente novamente mais tarde."
+                else:
+                    cpf_senior = "".join(filter(str.isdigit, str(cpf_senior or ""))).zfill(11)
+                    if not cpf_senior or cpf_senior != cpf:
+                        error_eleitor = "Matrícula ou CPF inválidos, ou colaborador fora da situação permitida."
+                    else:
+                        h_matricula = hash_matricula(matricula)
+                        h_cpf = hash_matricula(cpf)
+                        eleitor, _ = Eleitor.objects.get_or_create(
+                            matricula_hash=h_matricula,
+                            defaults={"cpf_hash": h_cpf},
+                        )
+                        if eleitor.cpf_hash != h_cpf:
+                            eleitor.cpf_hash = h_cpf
+                            eleitor.save(update_fields=["cpf_hash"])
+                        if not eleitor.user:
+                            eleitor.user = User.objects.create(username=f"eleitor_{eleitor.id}")
+                            eleitor.save(update_fields=["user"])
+                        login(request, eleitor.user)
+                        return redirect("candidatos")
 
         # Login admin
         elif "username" in request.POST:
@@ -95,43 +110,81 @@ def painel_admin(request):
     candidatos = Candidato.objects.filter(eleicao=eleicao_vigente).order_by('nome_completo') if eleicao_vigente else []
 
     return render(request, 'eleicao/painel_admin.html', {
-        'candidatos': candidatos,
+        'eleicao_vigente': eleicao_vigente,
         'eleicao_atual': eleicao_vigente,
-        'eleicao_vigente': eleicao_vigente
+        'candidatos': candidatos,
     })
 
 
 # CRUD de candidatos
 @user_passes_test(is_superadmin)
-def criar_candidato(request):
-    if request.method == 'POST':
-        eleicao_id = request.POST.get('eleicao_id')
-        eleicao = get_object_or_404(Eleicao, id=eleicao_id)
+def buscar_colaboradores_senior(request):
+    termo = request.GET.get("q", "")
+    if len(termo.strip()) < 2:
+        return JsonResponse({"results": []})
+    try:
+        colaboradores = buscar_colaboradores(termo)
+    except SeniorConnectionError:
+        return JsonResponse(
+            {"error": "Não foi possível consultar os colaboradores na Senior."},
+            status=503,
+        )
+    return JsonResponse({
+        "results": [
+            {
+                "matricula": pessoa["matricula"],
+                "nome_completo": pessoa["nome_completo"],
+                "cargo": pessoa["cargo"],
+                "setor": pessoa["setor"],
+                "unidade": pessoa["unidade"],
+                "unidade_nome": dict(Candidato.UNIDADES).get(pessoa["unidade"], ""),
+            }
+            for pessoa in colaboradores
+        ]
+    })
 
-        nome_completo = request.POST.get('nome_completo')
-        cargo = request.POST.get('cargo')
-        setor = request.POST.get('setor')
-        unidade = request.POST.get('unidade') or "HE"
+
+@user_passes_test(is_superadmin)
+def criar_candidato(request):
+    eleicoes = Eleicao.objects.filter(vigente=True).order_by('-data_inicio')
+    if request.method == 'POST':
+        eleicao = get_object_or_404(Eleicao, id=request.POST.get('eleicao_id'))
+        matricula = request.POST.get('matricula', '').strip()
         foto = request.FILES.get('foto')
 
-        if not nome_completo or not cargo or not setor:
-            messages.error(request, "Preencha todos os campos obrigatórios.")
-            return redirect('criar_candidato')
+        erro_conexao_senior = False
+        try:
+            colaborador = buscar_colaborador_por_matricula(matricula)
+        except SeniorConnectionError:
+            messages.error(request, "Não foi possível consultar os colaboradores na Senior.")
+            colaborador = None
+            erro_conexao_senior = True
 
-        Candidato.objects.create(
-            nome_completo=nome_completo,
-            cargo=cargo,
-            setor=setor,
-            unidade=unidade,
-            foto=foto,
-            eleicao=eleicao
-        )
-        messages.success(request, f"Candidato {nome_completo} cadastrado com sucesso!")
-        return redirect('painel_admin')
+        if erro_conexao_senior:
+            pass
+        elif not colaborador:
+            messages.error(request, "Selecione um colaborador trabalhando e vinculado a uma filial elegível.")
+        elif not colaborador["unidade"]:
+            messages.error(request, "A filial do colaborador não está mapeada para uma unidade do ElegeCIPA.")
+        elif Candidato.objects.filter(matricula=colaborador["matricula"], eleicao=eleicao).exists():
+            messages.error(request, "Este colaborador já está cadastrado como candidato nesta eleição.")
+        else:
+            Candidato.objects.create(
+                matricula=colaborador["matricula"],
+                nome_completo=colaborador["nome_completo"],
+                cargo=colaborador["cargo"] or "Não informado",
+                setor=colaborador["setor"] or "Não informado",
+                unidade=colaborador["unidade"],
+                foto=foto,
+                eleicao=eleicao,
+            )
+            messages.success(request, f"Candidato {colaborador['nome_completo']} cadastrado com sucesso!")
+            return redirect('painel_admin')
 
-    # Apenas eleições vigentes
-    eleicoes = Eleicao.objects.filter(vigente=True).order_by('-data_inicio')
-    return render(request, 'eleicao/criar_candidato.html', {'eleicoes': eleicoes})
+    return render(request, 'eleicao/criar_candidato.html', {
+        'eleicoes': eleicoes,
+        'selected_eleicao_id': request.POST.get('eleicao_id', ''),
+    })
 
 @user_passes_test(is_superadmin)
 def editar_candidato(request, candidato_id):

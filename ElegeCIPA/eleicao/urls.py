@@ -31,6 +31,7 @@ urlpatterns = [
     path('eleicao/encerrar/', views.escolher_eleicao_encerrar, name='escolher_eleicao_encerrar'),
     path('eleicao/encerrar/<int:eleicao_id>/', views.encerrar_eleicao, name='encerrar_eleicao'),
     path("candidato/criar/", views.criar_candidato, name="criar_candidato"),
+    path("candidato/buscar-colaboradores/", views.buscar_colaboradores_senior, name="buscar_colaboradores_senior"),
     path("candidato/editar/<int:candidato_id>/", views.editar_candidato, name="editar_candidato"),
     path("candidato/deletar/<int:candidato_id>/", views.deletar_candidato, name="deletar_candidato"),
 ]

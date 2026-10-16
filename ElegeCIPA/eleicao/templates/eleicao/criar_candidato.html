@@ -15,6 +15,20 @@
         <form method="post" enctype="multipart/form-data" class="space-y-6">
             {% csrf_token %}
 
+            <!-- Busca de colaborador ativo na Senior -->
+            <div class="flex flex-col">
+                <label for="busca_colaborador" class="text-gray-700 font-medium mb-2 flex items-center gap-2">
+                    <i class="fas fa-search"></i> Buscar colaborador trabalhando
+                </label>
+                <input type="search" id="busca_colaborador" autocomplete="off"
+                    placeholder="Digite o nome ou a matrícula (mínimo 2 caracteres)"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
+                <select id="resultado_colaboradores" size="5" aria-label="Resultados de colaboradores"
+                    class="hidden mt-2 w-full border border-gray-300 rounded-xl p-2"></select>
+                <p id="erro_busca_colaborador" class="hidden text-red-600 text-sm mt-2"></p>
+                <input type="hidden" id="matricula" name="matricula" required>
+            </div>
+
             <!-- Foto -->
             <div class="flex flex-col">
                 <label class="text-gray-700 font-medium mb-2 flex items-center gap-2">
@@ -36,7 +50,7 @@
                 <label for="nome_completo" class="text-gray-700 font-medium mb-2 flex items-center gap-2">
                     <i class="fas fa-id-card"></i> Nome Completo
                 </label>
-                <input type="text" id="nome_completo" name="nome_completo" required
+                <input type="text" id="nome_completo" name="nome_completo" required readonly
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
             </div>
 
@@ -45,7 +59,7 @@
                 <label for="cargo" class="text-gray-700 font-medium mb-2 flex items-center gap-2">
                     <i class="fas fa-briefcase"></i> Cargo
                 </label>
-                <input type="text" id="cargo" name="cargo" required
+                <input type="text" id="cargo" name="cargo" required readonly
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
             </div>
 
@@ -54,7 +68,7 @@
                 <label for="setor" class="text-gray-700 font-medium mb-2 flex items-center gap-2">
                     <i class="fas fa-building"></i> Setor
                 </label>
-                <input type="text" id="setor" name="setor" required
+                <input type="text" id="setor" name="setor" required readonly
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
             </div>
 
@@ -63,9 +77,9 @@
                 <label for="unidade" class="text-gray-700 font-medium mb-2 flex items-center gap-2">
                     <i class="fas fa-hospital"></i> Unidade
                 </label>
-                <select id="unidade" name="unidade" required
+                <select id="unidade" name="unidade" required disabled
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
-                    <option value="">Selecione uma unidade</option>
+                    <option value="">Selecione um colaborador</option>
                     <option value="HE">Hospital Evangélico</option>
                     <option value="LAB">Laboratório</option>
                     <option value="CORP">Corporativo</option>
@@ -85,7 +99,7 @@
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
                     <option value="">Selecione a eleição</option>
                     {% for eleicao in eleicoes %}
-                    <option value="{{ eleicao.id }}" {% if candidato.eleicao.id == eleicao.id %}selected{% endif %}>
+                    <option value="{{ eleicao.id }}" {% if selected_eleicao_id|stringformat:'s' == eleicao.id|stringformat:'s' %}selected{% endif %}>
                         Eleição {{ eleicao.id }}: {{ eleicao.data_inicio|date:"d/m/Y" }} até {{ eleicao.data_fim|date:"d/m/Y" }}
                     </option>
                     {% endfor %}
@@ -95,6 +109,7 @@
             <!-- Botão Salvar -->
             <div class="text-center">
                 <button type="submit"
+                    id="btnSalvarCandidato" disabled
                     class="mt-4 px-6 py-3 rounded-full bg-[#004876] text-white font-semibold hover:bg-[#ffa400] transition flex items-center justify-center gap-2 w-full">
                     <i class="fas fa-save"></i> Salvar Candidato
                 </button>
@@ -115,6 +130,70 @@
 </section>
 
 <script>
+    const buscaColaborador = document.getElementById('busca_colaborador');
+    const resultadosColaboradores = document.getElementById('resultado_colaboradores');
+    const erroBuscaColaborador = document.getElementById('erro_busca_colaborador');
+    const urlBuscaColaborador = "{% url 'buscar_colaboradores_senior' %}";
+    const matriculaInput = document.getElementById('matricula');
+    const botaoSalvarCandidato = document.getElementById('btnSalvarCandidato');
+    let temporizadorBusca;
+
+    buscaColaborador.addEventListener('input', () => {
+        clearTimeout(temporizadorBusca);
+        matriculaInput.value = '';
+        botaoSalvarCandidato.disabled = true;
+        resultadosColaboradores.innerHTML = '';
+        resultadosColaboradores.classList.add('hidden');
+        erroBuscaColaborador.textContent = '';
+        erroBuscaColaborador.classList.add('hidden');
+
+        const termo = buscaColaborador.value.trim();
+        if (termo.length < 2) return;
+
+        temporizadorBusca = setTimeout(async () => {
+            try {
+                const resposta = await fetch(`${urlBuscaColaborador}?q=${encodeURIComponent(termo)}`);
+                const dados = await resposta.json();
+                if (!resposta.ok) throw new Error(dados.error || 'Falha ao consultar a Senior.');
+
+                resultadosColaboradores.innerHTML = '';
+                dados.results.forEach((pessoa) => {
+                    const opcao = document.createElement('option');
+                    opcao.value = pessoa.matricula;
+                    opcao.textContent = `${pessoa.nome_completo} — ${pessoa.matricula}`;
+                    opcao.dataset.nome = pessoa.nome_completo;
+                    opcao.dataset.cargo = pessoa.cargo;
+                    opcao.dataset.setor = pessoa.setor;
+                    opcao.dataset.unidade = pessoa.unidade || '';
+                    opcao.dataset.unidadeNome = pessoa.unidade_nome || '';
+                    resultadosColaboradores.appendChild(opcao);
+                });
+                resultadosColaboradores.classList.toggle('hidden', dados.results.length === 0);
+                if (dados.results.length === 0) {
+                    erroBuscaColaborador.textContent = 'Nenhum colaborador elegível encontrado.';
+                    erroBuscaColaborador.classList.remove('hidden');
+                }
+            } catch (erro) {
+                erroBuscaColaborador.textContent = erro.message;
+                erroBuscaColaborador.classList.remove('hidden');
+            }
+        }, 300);
+    });
+
+    resultadosColaboradores.addEventListener('change', () => {
+        const pessoa = resultadosColaboradores.selectedOptions[0];
+        if (!pessoa) return;
+        matriculaInput.value = pessoa.value;
+        buscaColaborador.value = pessoa.textContent;
+        document.getElementById('nome_completo').value = pessoa.dataset.nome;
+        document.getElementById('cargo').value = pessoa.dataset.cargo;
+        document.getElementById('setor').value = pessoa.dataset.setor;
+        const unidade = document.getElementById('unidade');
+        unidade.value = pessoa.dataset.unidade;
+        botaoSalvarCandidato.disabled = !pessoa.dataset.unidade;
+        resultadosColaboradores.classList.add('hidden');
+    });
+
     function updateFileName(input) {
         const fileName = input.files.length > 0 ? input.files[0].name : "Selecionar arquivo";
         document.getElementById('fileName').textContent = fileName;

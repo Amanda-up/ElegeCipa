@@ -43,6 +43,7 @@ class Candidato(models.Model):
         ('CESP', 'Centro de Especialidades'),
     ]
 
+    matricula = models.CharField("Matrícula", max_length=20, blank=True, null=True, db_index=True)
     nome_completo = models.CharField(max_length=120)
     cargo = models.CharField(max_length=100)
     setor = models.CharField(max_length=100)
@@ -53,6 +54,14 @@ class Candidato(models.Model):
 
     def __str__(self):
         return f"{self.nome_completo} ({self.eleicao})"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["matricula", "eleicao"],
+                name="candidato_unico_por_eleicao",
+            )
+        ]
 
 class Voto(models.Model):
     eleitor = models.ForeignKey(Eleitor, on_delete=models.CASCADE, related_name='votos')  # MUDANÇA: OneToOne para ForeignKey
