@@ -29,7 +29,7 @@ ALLOWED_HOSTS = [
     'localhost',
     '127.0.0.1',
     '192.168.0.95',
-    'cipa.hr.org.br'
+    'cipa.he.org.br'
 ]
 
 # Security settings for production
