@@ -1,0 +1,126 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Painel do Administrador - Eleições CIPA{% endblock %}
+
+{% block content %}
+<section class="pt-32 relative min-h-[100vh] px-4 py-12 bg-gray-50">
+
+    <div class="relative z-10 max-w-7xl mx-auto">
+
+        <!-- Título e botões superiores -->
+        <div class="flex flex-col sm:flex-row sm:justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-[#004876] mb-4 sm:mb-0">
+                Painel do Administrador da Eleição
+            </h1>
+            <div class="flex gap-4">
+                <a href="{% url 'criar_eleicao' %}"
+                    class="mt-4 inline-block px-6 py-2 rounded-full bg-[#004876] text-white font-medium hover:bg-[#ffa400] transition">
+                    Criar Eleição
+                </a>
+                <a href="{% url 'escolher_eleicao_encerrar' %}"
+                    class="mt-4 inline-block px-6 py-2 rounded-full bg-gray-300 text-gray-700 font-medium hover:bg-gray-400 transition">
+                    Encerrar Eleição
+                </a>
+                <a href="{% url 'eleicoes_anteriores' %}"
+                    class="mt-4 inline-block px-6 py-2 rounded-full bg-gray-300 text-gray-700 font-medium hover:bg-gray-400 transition">
+                    Eleições Anteriores
+                </a>
+
+
+            </div>
+        </div>
+
+        <hr class="border-[#004876] mb-6">
+
+        {% if eleicao_atual %}
+        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Eleição atual</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+
+            <!-- Card Data de Início -->
+            <div class="bg-white rounded-2xl shadow-lg p-6 flex justify-between items-center">
+                <div>
+                    <p class="text-gray-500 text-sm">Data de Início</p>
+                    <p class="text-xl font-semibold text-[#004876]">
+                        {{ eleicao_atual.data_inicio|date:"d/m/Y" }}
+                    </p>
+                </div>
+                <a href="{% url 'editar_eleicao' eleicao_atual.id %}"
+                    class="text-[#004876] hover:text-[#ffa400] transition">
+                    <i class="fas fa-edit text-xl"></i>
+                </a>
+            </div>
+
+            <!-- Card Data de Fim -->
+            <div class="bg-white rounded-2xl shadow-lg p-6 flex justify-between items-center">
+                <div>
+                    <p class="text-gray-500 text-sm">Data de Fim</p>
+                    <p class="text-xl font-semibold text-[#004876]">
+                        {{ eleicao_atual.data_fim|date:"d/m/Y" }}
+                    </p>
+                </div>
+                <a href="{% url 'editar_eleicao' eleicao_atual.id %}"
+                    class="text-[#004876] hover:text-[#ffa400] transition">
+                    <i class="fas fa-edit text-xl"></i>
+                </a>
+            </div>
+
+        </div>
+        {% endif %}
+
+
+        <!-- Candidatos -->
+        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Candidatos</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
+            {% for candidato in candidatos %}
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl transition relative">
+                {% if candidato.foto %}
+                <img src="{{ candidato.foto.url }}" alt="{{ candidato.nome_completo }}"
+                    class="w-full h-72 object-cover">
+                {% else %}
+                <img src="{% static 'eleicao/img/default_candidato.jpeg' %}" alt="{{ candidato.nome_completo }}"
+                    class="w-full h-72 object-cover">
+                {% endif %}
+
+                <div class="p-6 text-center space-y-3">
+                    <h3 class="text-xl font-semibold text-[#004876]">{{ candidato.nome_completo }}</h3>
+                    <p class="text-gray-600 text-sm">{{ candidato.cargo }}</p>
+                    <p class="text-gray-500 text-xs">Setor: {{ candidato.setor }}</p>
+                    <p class="text-gray-500 text-xs">Unidade: {{ candidato.unidade }}</p>
+                </div>
+
+                <!-- Ações -->
+                <div class="absolute top-2 right-2 flex gap-2">
+                    <a href="{% url 'editar_candidato' candidato.id %}"
+                        class="text-[#004876] hover:text-[#ffa400] transition bg-white p-2 rounded-full shadow">
+                        <i class="fas fa-edit"></i>
+                    </a>
+                    <a href="{% url 'deletar_candidato' candidato.id %}"
+                        class="text-[#ff4d4f] hover:text-[#ffa400] transition bg-white p-2 rounded-full shadow"
+                        onclick="return confirm('Deseja realmente excluir este candidato?');">
+                        <i class="fas fa-trash-alt"></i>
+                    </a>
+                </div>
+            </div>
+            {% empty %}
+            <p class="text-gray-500">Nenhum candidato cadastrado.</p>
+            {% endfor %}
+        </div>
+
+        {% if eleicao_vigente %}
+        <!-- Botões Cadastrar Candidatos e Apurar Votos lado a lado -->
+        <div class="flex flex-col sm:flex-row justify-center gap-4 mt-4">
+            <a href="{% url 'criar_candidato' %}"
+                class="inline-block px-6 py-3 rounded-full bg-[#004876] text-white font-medium hover:bg-[#ffa400] transition flex-1 text-center">
+                <i class="fas fa-user-plus mr-2"></i> Cadastrar Candidatos
+            </a>
+            <a href="{% url 'escolher_eleicao_apurar' %}"
+                class="inline-block px-6 py-3 rounded-full bg-[#004876] text-white font-medium hover:bg-[#ffa400] transition flex-1 text-center">
+                <i class="fas fa-check mr-2"></i> Apurar Votos
+            </a>
+        </div>
+        {% endif %}
+
+    </div>
+</section>
+{% endblock %}

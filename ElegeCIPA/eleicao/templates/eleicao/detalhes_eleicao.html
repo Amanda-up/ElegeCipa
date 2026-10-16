@@ -1,0 +1,95 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Apuração de Votos - Eleições CIPA{% endblock %}
+
+{% block content %}
+<section class="pt-32 relative min-h-[100vh] px-4 py-12 bg-gray-50">
+
+    <div class="relative z-10 max-w-7xl mx-auto">
+
+        <!-- Título e período -->
+        <div class="flex flex-col sm:flex-row sm:justify-between items-center mb-6 gap-2">
+            <div class="flex items-center gap-2 mb-4 sm:mb-0">
+                <h1 class="text-3xl font-bold text-[#004876]">
+                    Apuração dos votos
+                </h1>
+            </div>
+
+            <span class="text-gray-700 font-medium">
+                Período: {{ eleicao_atual.data_inicio|date:"d/m/Y" }} - {{ eleicao_atual.data_fim|date:"d/m/Y" }}
+            </span>
+        <!-- Botão gerar PDF -->
+        <div class="flex justify-center mt-4">
+            <a href="{% url 'gerar_extrato_pdf' %}"
+                class="px-6 py-2 rounded-full bg-[#004876] text-white font-medium hover:bg-[#ffa400] transition flex items-center justify-center gap-2">
+                <i class="fas fa-file-pdf"></i> Gerar PDF da Apuração
+            </a>
+        </div>
+        </div>
+
+        <hr class="border-[#004876] mb-6">
+
+        <!-- Candidatos Eleitos -->
+        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Candidatos Eleitos</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
+            {% for c in eleitos %}
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl transition">
+                {% if c.foto %}
+                <img src="{{ c.foto.url }}" alt="{{ c.nome_completo }}" class="w-full h-72 object-cover">
+                {% else %}
+                <img src="{% static 'eleicao/img/sem_foto.jpg' %}" alt="Sem foto" class="w-full h-72 object-cover">
+                {% endif %}
+                <div class="p-6 text-center space-y-3">
+                    <h3 class="text-xl font-semibold text-[#004876]">{{ c.nome_completo }}</h3>
+                    <p class="text-gray-600 text-sm">{{ c.cargo|default:"Candidato" }}</p>
+                    <p class="text-gray-500 text-xs">Unidade: {{ c.get_unidade_display }}</p>
+                    <div
+                        class="mt-4 inline-flex items-center justify-center gap-2 px-4 py-1 rounded-full bg-green-200 text-green-800 font-medium">
+                        <i class="fas fa-check-circle"></i> {{ c.total_votos }} votos
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <p class="text-gray-600 italic">Nenhum candidato eleito ainda.</p>
+            {% endfor %}
+        </div>
+
+        <hr class="border-[#004876] mb-6">
+
+        <!-- Candidatos Não Eleitos -->
+        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Candidatos Não Eleitos</h2>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
+            {% for c in nao_eleitos %}
+            <div class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl transition">
+                {% if c.foto %}
+                <img src="{{ c.foto.url }}" alt="{{ c.nome_completo }}" class="w-full h-72 object-cover">
+                {% else %}
+                <img src="{% static 'eleicao/img/sem_foto.jpg' %}" alt="Sem foto" class="w-full h-72 object-cover">
+                {% endif %}
+                <div class="p-6 text-center space-y-3">
+                    <h3 class="text-xl font-semibold text-[#004876]">{{ c.nome_completo }}</h3>
+                    <p class="text-gray-600 text-sm">{{ c.cargo|default:"Candidato" }}</p>
+                    <p class="text-gray-500 text-xs">Unidade: {{ c.get_unidade_display }}</p>
+                    <div
+                        class="mt-4 inline-flex items-center justify-center gap-2 px-4 py-1 rounded-full bg-red-200 text-red-800 font-medium">
+                        <i class="fas fa-times-circle"></i> {{ c.total_votos }} votos
+                    </div>
+                </div>
+            </div>
+            {% empty %}
+            <p class="text-gray-600 italic">Nenhum candidato não eleito.</p>
+            {% endfor %}
+        </div>
+
+     <!-- Botão Voltar ao Painel -->
+    <div class="pt-20 flex justify-center mt-6">
+        <a href="{% url 'painel_admin' %}" 
+        class="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-full bg-[#004876] text-white font-medium hover:bg-[#ffa400] transition text-sm">
+            <i class="fas fa-arrow-left"></i> Voltar ao Painel
+        </a>
+    </div>
+
+    </div>
+</section>
+{% endblock %}

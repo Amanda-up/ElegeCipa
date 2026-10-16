@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Candidatos - Eleições CIPA{% endblock %}
+
+{% block content %}
+<div class="min-h-[100vh] px-4 py-12 bg-gray-50 pt-32">
+    <h2 class="text-3xl font-bold text-center text-[#004876] mb-10">
+        <i class="fas fa-users mr-2 text-[#ffa400]"></i>
+        Candidatos da CIPA
+    </h2>
+
+    <!-- CORREÇÃO: Grid responsivo -->
+    <div class="pt-14 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-7xl mx-auto">
+        {% for candidato in candidatos %}
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl transition w-full">
+            {% if candidato.foto %}
+            <img src="{{ candidato.foto.url }}" alt="{{ candidato.nome_completo }}" class="w-full h-64 object-cover">
+            {% else %}
+            <img src="{% static 'eleicao/img/default_candidato.jpeg' %}" alt="{{ candidato.nome_completo }}"
+                class="w-full h-64 object-cover">
+            {% endif %}
+            <div class="p-6 text-center space-y-3">
+                <h3 class="text-xl font-semibold text-[#004876]">{{ candidato.nome_completo }}</h3>
+                <p class="text-gray-600 text-sm">{{ candidato.cargo }}</p>
+                <p class="text-gray-500 text-xs">Setor: {{ candidato.setor }}</p>
+                <div class="mt-4">
+                    <a href="{% url 'confirmar_voto' candidato.id %}"
+                        class="inline-block px-5 py-2 rounded-full bg-[#004876] text-white font-medium hover:bg-[#ffa400] transition text-sm md:text-base">
+                        <i class="fas fa-check mr-2"></i> Votar
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        <!-- Botão de Voto em Branco - SÓ MOSTRA SE HOUVER ELEIÇÃO VIGENTE -->
+        {% if eleicao_vigente %}
+        <div class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl transition border-2 border-gray-300 w-full">
+            <div class="bg-gray-100 w-full h-64 flex items-center justify-center">
+                <i class="fas fa-file-alt text-6xl text-gray-400"></i>
+            </div>
+            <div class="p-6 text-center space-y-3">
+                <h3 class="text-xl font-semibold text-gray-600">Voto em Branco</h3>
+                <p class="text-gray-500 text-sm">Não desejo votar em nenhum candidato</p>
+                <div class="mt-4">
+                    <a href="{% url 'confirmar_voto_branco' %}"
+                        class="inline-block px-5 py-2 rounded-full bg-gray-600 text-white font-medium hover:bg-gray-700 transition text-sm md:text-base">
+                        <i class="fas fa-file-alt mr-2"></i> Votar em Branco
+                    </a>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Mensagens informativas -->
+    <div class="max-w-7xl mx-auto mt-8">
+        {% if eleicao_vigente %}
+        <div class="flex items-center justify-center text-lg text-gray-500 mt-8 px-4">
+            <i class="fas fa-info-circle mr-2 text-[#004876]"></i>
+            <span class="text-center text-sm md:text-base">Escolha somente um candidato ou voto em branco</span>
+        </div>
+        {% else %}
+        <div class="max-w-2xl mx-auto bg-yellow-100 border border-yellow-400 rounded-lg p-6 text-center">
+            <i class="fas fa-exclamation-triangle text-yellow-500 text-2xl mb-2"></i>
+            <h3 class="text-lg font-semibold text-yellow-700">Não há eleição em andamento</h3>
+            <p class="text-yellow-600">Aguarde o início do próximo período eleitoral.</p>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

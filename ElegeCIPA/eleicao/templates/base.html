@@ -1,0 +1,156 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}ElegeCIPA{% endblock %}</title>
+    <link rel="stylesheet" href="{% static 'eleicao/css/styles.css' %}">
+    <link rel="icon" type="image/svg+xml" href="{% static 'eleicao/img/logo.png' %}">
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#004876',
+                        alert: '#ffa400'
+                    },
+                    screens: { 'lgx': '1090px' }
+                }
+            }
+        }
+    </script>
+
+    <!-- Fonte -->
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+    
+    {% block extra_head %}{% endblock %}
+</head>
+
+<body class="bg-gray-100 text-gray-800 font-sans">
+
+    {% block navbar %}
+    <header class="fixed top-0 left-0 w-full z-50 shadow-md bg-white">
+        <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+            <!-- Logo -->
+            <div class="flex items-center">
+                <a href="{% url 'landing' %}">
+                    <img src="{% static 'eleicao/img/logo.png' %}" alt="ElegeCIPA" class="h-10 w-auto">
+                </a>
+            </div>
+
+            <!-- BOTÃO MENU MOBILE (ADICIONADO) -->
+            <button id="menu-btn" class="lgx:hidden flex items-center justify-center w-10 h-10 rounded-lg border border-gray-300 hover:bg-gray-50 transition">
+                <svg id="icon-open" class="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+                </svg>
+                <svg id="icon-close" class="w-5 h-5 text-gray-700 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+
+            <!-- Navbar desktop -->
+            <nav class="hidden lgx:flex space-x-6 font-medium text-gray-700">
+                <a href="{% url 'landing' %}" class="hover:text-primary transition">Início</a>
+                <a href="#" class="hover:text-primary transition">Sobre Nós</a>
+                <a href="#" class="hover:text-primary transition">Contato</a>
+            </nav>
+
+            <!-- Ações desktop -->
+            <div class="hidden lgx:flex space-x-3">
+                {% if user.is_authenticated %}
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit"
+                        class="px-5 py-2 font-medium rounded-full border border-primary text-primary hover:bg-primary hover:text-white transition">
+                        Sair
+                    </button>
+                </form>
+                {% else %}
+                <a href="{% url 'login' %}"
+                    class="px-5 py-2 font-medium rounded-full border border-primary text-primary hover:bg-primary hover:text-white transition">
+                    Votar
+                </a>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Menu mobile (FORA da div principal) -->
+        <div id="mobile-menu" class="hidden lgx:hidden bg-white shadow-lg border-t border-gray-200 px-6 py-4 space-y-3">
+            <a href="{% url 'landing' %}" class="block px-3 py-2 rounded hover:bg-primary/10 transition">Início</a>
+            <a href="#" class="block px-3 py-2 rounded hover:bg-primary/10 transition">Sobre Nós</a>
+            <a href="#" class="block px-3 py-2 rounded hover:bg-primary/10 transition">Contato</a>
+            
+            <div class="pt-4 border-t border-gray-200 space-y-2">
+                {% if user.is_authenticated %}
+                <form method="post" action="{% url 'logout' %}">
+                    {% csrf_token %}
+                    <button type="submit"
+                        class="block w-full text-center px-5 py-2 rounded-full bg-primary text-white hover:bg-primary/90 transition">
+                        Sair
+                    </button>
+                </form>
+                {% else %}
+                <a href="{% url 'login' %}"
+                    class="block text-center px-5 py-2 rounded-full bg-primary text-white hover:bg-primary/90 transition">
+                    Votar
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    {% endblock %}
+
+    <!-- Espaço para o header fixo -->
+    <div class="h-20"></div>
+
+    {% block content %}{% endblock %}
+
+    <script>
+        // Menu mobile functionality
+        const btn = document.getElementById('menu-btn');
+        const menu = document.getElementById('mobile-menu');
+        const iconOpen = document.getElementById('icon-open');
+        const iconClose = document.getElementById('icon-close');
+
+        if (btn && menu && iconOpen && iconClose) {
+            btn.addEventListener('click', () => {
+                menu.classList.toggle('hidden');
+                iconOpen.classList.toggle('hidden');
+                iconClose.classList.toggle('hidden');
+            });
+        }
+    </script>
+
+    {% block extra_js %}{% endblock %}
+
+    {% block footer %}
+    <footer class="mt-12 w-full glass py-10 text-gray-700">
+        <div class="max-w-7xl mx-auto px-6">
+            <hr class="border-[#004876] mb-6">
+            <div class="flex flex-col items-center justify-center space-y-4 sm:space-y-0">
+                <div class="flex space-x-4 mb-4">
+                    <a href="#" class="flex items-center justify-center w-10 h-10 rounded-full bg-[#004876] hover:bg-[#ffa400] transition text-lg">
+                        <i class="fab fa-facebook-f text-white hover:text-black"></i>
+                    </a>
+                    <a href="#" class="flex items-center justify-center w-10 h-10 rounded-full bg-[#004876] hover:bg-[#ffa400] transition text-lg">
+                        <i class="fab fa-instagram text-white hover:text-black"></i>
+                    </a>
+                    <a href="#" class="flex items-center justify-center w-10 h-10 rounded-full bg-[#004876] hover:bg-[#ffa400] transition text-lg">
+                        <i class="fab fa-whatsapp text-white hover:text-black"></i>
+                    </a>
+                </div>
+                <p class="text-sm text-center">
+                    &copy; 2025 Hospital Evangélico de Belo Horizonte.
+                    <br>Desenvolvido por <a href="#" class="text-[#ffa400] hover:underline">Israel dos Reis</a>.</br>
+                </p>
+            </div>
+        </div>
+    </footer>
+    {% endblock %}
+</body>
+</html>

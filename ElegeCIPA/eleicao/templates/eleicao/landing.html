@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+
+{% load static %}
+
+{% block title %}Eleição CIPA - Inicio{% endblock %}
+
+{% block content %}
+<section class="relative flex flex-col items-center justify-center min-h-[100vh] text-center px-4 space-y-6"
+         style="background: url('{% static 'eleicao/img/elementos gráficos.png' %}') no-repeat center center; background-size: cover;">
+    
+    <!-- Overlay branco semitransparente -->
+    <div class="absolute inset-0 bg-white opacity-40"></div>
+
+    <!-- Conteúdo centralizado -->
+    <div class="flex flex-col items-center justify-center relative z-10 space-y-6">
+        <h1 class="fadeSlide delay-1 text-4xl lgx:text-6xl font-normal leading-snug text-gray-800">
+            Participe da <span class="text-primary"><br>Eleição</span> da CIPA
+        </h1>
+        <p class="fadeSlide delay-2 text-xl lgx:text-2xl text-gray-700 max-w-2xl">
+            Escolha de forma rápida, simples e anônima o seu candidato para a CIPA.
+        </p>
+        <div class="fadeSlide delay-3 mt-4 flex flex-col sm:flex-row gap-4">
+            <a href="{% url 'login' %}" 
+               class="px-6 py-3 text-lg font-medium rounded-full border border-primary text-primary hover:bg-primary hover:text-white transition">
+                Votar
+            </a>
+        </div>
+    </div>
+</section>
+{% endblock %}

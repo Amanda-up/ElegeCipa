@@ -1,0 +1,164 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<section class="relative flex items-center justify-center min-h-[100vh] px-4 bg-gray-50"
+    style="background: url('{% static 'eleicao/img/elementos gráficos.png' %}') no-repeat center center; background-size: cover;">
+
+    <!-- Overlay branco semitransparente -->
+    <div class="absolute inset-0 bg-white opacity-40"></div>
+
+    <!-- Conteúdo do login -->
+    <div class="relative z-10 w-full max-w-md bg-white shadow-lg rounded-2xl p-8">
+
+        <!-- Título -->
+        <h2 class="text-2xl font-bold text-center text-[#004876] mb-6">
+            <i class="fas fa-vote-yea mr-2 text-[#ffa400]"></i>
+            Eleições da CIPA
+        </h2>
+
+        <!-- Abas em pílula -->
+        <div class="flex justify-center mb-6">
+            <div class="flex bg-gray-200 rounded-full p-1 w-full max-w-xs">
+                <button id="btnEleitor"
+                    class="flex-1 py-2 rounded-full text-sm font-medium bg-[#004876] text-white transition flex items-center justify-center gap-2">
+                    <i class="fas fa-id-card"></i> Eleitor
+                </button>
+                <button id="btnAdmin"
+                    class="flex-1 py-2 rounded-full text-sm font-medium text-gray-600 hover:text-black transition flex items-center justify-center gap-2">
+                    <i class="fas fa-user-shield"></i> Administrador
+                </button>
+            </div>
+        </div>
+
+         <!-- Formulário Eleitor -->
+        <form id="formEleitor" method="post" action="{% url 'login' %}" class="space-y-4">
+            {% csrf_token %}
+            <div class="space-y-1">
+                <label for="{{ eleitor_form.matricula.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    Matrícula
+                </label>
+                {{ eleitor_form.matricula }}
+                {% if eleitor_form.matricula.errors %}
+                <p class="text-red-600 text-sm">{{ eleitor_form.matricula.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            <div class="space-y-1">
+                <label for="{{ eleitor_form.cpf.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    CPF
+                </label>
+                {{ eleitor_form.cpf }}
+                {% if eleitor_form.cpf.errors %}
+                <p class="text-red-600 text-sm">{{ eleitor_form.cpf.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            {% if error_eleitor %}
+            <p class="text-red-600 text-sm">{{ error_eleitor }}</p>
+            {% endif %}
+
+            <button type="submit"
+                class="w-full py-2 px-4 rounded-full bg-[#004876] text-white font-semibold hover:bg-[#ffa400] transition flex items-center justify-center gap-2">
+                <i class="fas fa-sign-in-alt"></i> Entrar
+            </button>
+        </form>
+
+        <!-- Formulário Admin -->
+        <form id="formAdmin" method="post" action="{% url 'login' %}" class="space-y-4 hidden">
+            {% csrf_token %}
+            <div class="space-y-2">
+                <label for="{{ admin_form.username.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    Usuário
+                </label>
+                {{ admin_form.username }}
+                {% if admin_form.username.errors %}
+                <p class="text-red-600 text-sm">{{ admin_form.username.errors.0 }}</p>
+                {% endif %}
+
+                <label for="{{ admin_form.password.id_for_label }}" class="block text-sm font-medium text-gray-700">
+                    Senha
+                </label>
+                {{ admin_form.password }}
+                {% if admin_form.password.errors %}
+                <p class="text-red-600 text-sm">{{ admin_form.password.errors.0 }}</p>
+                {% endif %}
+            </div>
+
+            {% if error_admin %}
+            <p class="text-red-600 text-sm">{{ error_admin }}</p>
+            {% endif %}
+
+            <button type="submit"
+                class="w-full py-2 px-4 rounded-full bg-[#004876] text-white font-semibold hover:bg-[#ffa400] transition flex items-center justify-center gap-2">
+                <i class="fas fa-sign-in-alt"></i> Entrar
+            </button>
+        </form>
+
+    </div>
+
+</section>
+
+<script>
+    const btnEleitor = document.getElementById("btnEleitor");
+    const btnAdmin = document.getElementById("btnAdmin");
+    const formEleitor = document.getElementById("formEleitor");
+    const formAdmin = document.getElementById("formAdmin");
+    const cpfInput = document.getElementById('id_cpf');
+    const matriculaInput = document.getElementById('id_matricula'); 
+
+    btnEleitor.addEventListener("click", () => {
+        formEleitor.classList.remove("hidden");
+        formAdmin.classList.add("hidden");
+        btnEleitor.classList.add("bg-[#004876]", "text-white");
+        btnEleitor.classList.remove("text-gray-600");
+        btnAdmin.classList.remove("bg-[#004876]", "text-white");
+        btnAdmin.classList.add("text-gray-600");
+    });
+
+    btnAdmin.addEventListener("click", () => {
+        formAdmin.classList.remove("hidden");
+        formEleitor.classList.add("hidden");
+        btnAdmin.classList.add("bg-[#004876]", "text-white");
+        btnAdmin.classList.remove("text-gray-600");
+        btnEleitor.classList.remove("bg-[#004876]", "text-white");
+        btnEleitor.classList.add("text-gray-600");
+    });
+
+    // Apenas números para CPF
+    cpfInput.addEventListener('input', function () {
+        this.value = this.value.replace(/[^0-9]/g, '');
+    });
+
+    // Apenas números para Matrícula
+    matriculaInput.addEventListener('input', function () {
+        this.value = this.value.replace(/[^0-9]/g, '');
+    });
+
+     function showTab(tab) {
+        if (tab === "eleitor") {
+            formEleitor.classList.remove("hidden");
+            formAdmin.classList.add("hidden");
+            btnEleitor.classList.add("bg-[#004876]", "text-white");
+            btnEleitor.classList.remove("text-gray-600");
+            btnAdmin.classList.remove("bg-[#004876]", "text-white");
+            btnAdmin.classList.add("text-gray-600");
+        } else {
+            formAdmin.classList.remove("hidden");
+            formEleitor.classList.add("hidden");
+            btnAdmin.classList.add("bg-[#004876]", "text-white");
+            btnAdmin.classList.remove("text-gray-600");
+            btnEleitor.classList.remove("bg-[#004876]", "text-white");
+            btnEleitor.classList.add("text-gray-600");
+        }
+    }
+
+    btnEleitor.addEventListener("click", () => showTab("eleitor"));
+    btnAdmin.addEventListener("click", () => showTab("admin"));
+
+    // Ativa a aba correta ao carregar a página
+    showTab("{{ active_tab }}");
+
+</script>
+
+{% endblock %}
