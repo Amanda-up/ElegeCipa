@@ -21,7 +21,8 @@
                     <i class="fas fa-search"></i> Buscar colaborador trabalhando
                 </label>
                 <input type="search" id="busca_colaborador" autocomplete="off"
-                    placeholder="Digite o nome ou a matrícula (mínimo 2 caracteres)"
+                    placeholder="Selecione a eleição e informe nome ou matrícula"
+                    disabled
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
                 <select id="resultado_colaboradores" size="5" aria-label="Resultados de colaboradores"
                     class="hidden mt-2 w-full border border-gray-300 rounded-xl p-2"></select>
@@ -80,13 +81,11 @@
                 <select id="unidade" name="unidade" required disabled
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
                     <option value="">Selecione um colaborador</option>
-                    <option value="HE">Hospital Evangélico</option>
-                    <option value="LAB">Laboratório</option>
-                    <option value="CORP">Corporativo</option>
-                    <option value="CNBH">Centro de Nefrologia Contorno</option>
-                    <option value="CNVN">Centro de Nefrologia Venda Nova</option>
-                    <option value="CNCT">Centro de Nefrologia Contagem</option>
-                    <option value="CESP">Centro de Especialidades</option>
+                    <option value="HE">HE (filiais 1, 2 e 7: HE, CORP e LAB)</option>
+                    <option value="CNBH">CNBH</option>
+                    <option value="CNVN">CNVN</option>
+                    <option value="CNCT">CNCT</option>
+                    <option value="CESP">CESP</option>
                 </select>
             </div>
 
@@ -100,7 +99,7 @@
                     <option value="">Selecione a eleição</option>
                     {% for eleicao in eleicoes %}
                     <option value="{{ eleicao.id }}" {% if selected_eleicao_id|stringformat:'s' == eleicao.id|stringformat:'s' %}selected{% endif %}>
-                        Eleição {{ eleicao.id }}: {{ eleicao.data_inicio|date:"d/m/Y" }} até {{ eleicao.data_fim|date:"d/m/Y" }}
+                        {{ eleicao.get_unidade_display }} — Eleição {{ eleicao.id }}: {{ eleicao.data_inicio|date:"d/m/Y" }} até {{ eleicao.data_fim|date:"d/m/Y" }}
                     </option>
                     {% endfor %}
                 </select>
@@ -136,7 +135,24 @@
     const urlBuscaColaborador = "{% url 'buscar_colaboradores_senior' %}";
     const matriculaInput = document.getElementById('matricula');
     const botaoSalvarCandidato = document.getElementById('btnSalvarCandidato');
+    const eleicaoSelect = document.getElementById('eleicao');
     let temporizadorBusca;
+    buscaColaborador.disabled = !eleicaoSelect.value;
+
+    eleicaoSelect.addEventListener('change', () => {
+        buscaColaborador.disabled = !eleicaoSelect.value;
+        buscaColaborador.value = '';
+        matriculaInput.value = '';
+        botaoSalvarCandidato.disabled = true;
+        resultadosColaboradores.innerHTML = '';
+        resultadosColaboradores.classList.add('hidden');
+        erroBuscaColaborador.textContent = '';
+        erroBuscaColaborador.classList.add('hidden');
+        document.getElementById('nome_completo').value = '';
+        document.getElementById('cargo').value = '';
+        document.getElementById('setor').value = '';
+        document.getElementById('unidade').value = '';
+    });
 
     buscaColaborador.addEventListener('input', () => {
         clearTimeout(temporizadorBusca);
@@ -152,7 +168,7 @@
 
         temporizadorBusca = setTimeout(async () => {
             try {
-                const resposta = await fetch(`${urlBuscaColaborador}?q=${encodeURIComponent(termo)}`);
+                const resposta = await fetch(`${urlBuscaColaborador}?q=${encodeURIComponent(termo)}&eleicao_id=${encodeURIComponent(eleicaoSelect.value)}`);
                 const dados = await resposta.json();
                 if (!resposta.ok) throw new Error(dados.error || 'Falha ao consultar a Senior.');
 

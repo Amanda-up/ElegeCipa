@@ -20,7 +20,7 @@
             <select id="eleicao_id" name="eleicao_id" required
                 class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
                 {% for e in eleicoes_ativas %}
-                <option value="{{ e.id }}">Eleição {{ e.id }} - {{ e.data_inicio|date:"d/m/Y" }} até {{ e.data_fim|date:"d/m/Y" }}</option>
+                <option value="{{ e.id }}">{{ e.get_unidade_display }} — Eleição {{ e.id }} - {{ e.data_inicio|date:"d/m/Y" }} até {{ e.data_fim|date:"d/m/Y" }}</option>
                 {% endfor %}
             </select>
         </div>

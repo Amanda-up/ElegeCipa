@@ -17,8 +17,10 @@
         <div class="bg-white rounded-2xl shadow-lg overflow-hidden hover:shadow-2xl transition w-full max-w-xs">
             <div class="p-6 text-center space-y-3">
                 <h3 class="text-xl font-semibold text-[#004876]">
+                    {{ eleicao.get_unidade_display }}<br>
                     Período {{ eleicao.data_inicio|date:"d/m/Y" }} - {{ eleicao.data_fim|date:"d/m/Y" }}
                 </h3>
+                <p class="text-gray-600">{{ eleicao.vagas_efetivos }} efetivos e {{ eleicao.vagas_suplentes }} suplentes</p>
                 <div class="mt-4">
                     <!-- CORREÇÃO: Mudar para apuração de votos -->
                     <a href="{% url 'apuracao_votos_especifica' eleicao.id %}"

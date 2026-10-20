@@ -69,17 +69,11 @@
                 <select id="unidade" name="unidade" required
                     class="w-full px-4 py-2 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#004876]">
                     <option value="">Selecione uma unidade</option>
-                    <option value="HE" {% if candidato.unidade == "HE" %}selected{% endif %}>Hospital Evangélico</option>
-                    <option value="LAB" {% if candidato.unidade == "LAB" %}selected{% endif %}>Laboratório</option>
-                    <option value="CORP" {% if candidato.unidade == "CORP" %}selected{% endif %}>Corporativo</option>
-                    <option value="CNBH" {% if candidato.unidade == "CNBH" %}selected{% endif %}>Centro de Nefrologia
-                        Contorno</option>
-                    <option value="CNVN" {% if candidato.unidade == "CNVN" %}selected{% endif %}>Centro de Nefrologia
-                        Venda Nova</option>
-                    <option value="CNCT" {% if candidato.unidade == "CNCT" %}selected{% endif %}>Centro de Nefrologia
-                        Contagem</option>
-                    <option value="CESP" {% if candidato.unidade == "CESP" %}selected{% endif %}>Centro de Especialidades
-                    </option>
+                    <option value="HE" {% if candidato.unidade == "HE" %}selected{% endif %}>HE (filiais 1, 2 e 7: HE, CORP e LAB)</option>
+                    <option value="CNBH" {% if candidato.unidade == "CNBH" %}selected{% endif %}>CNBH</option>
+                    <option value="CNVN" {% if candidato.unidade == "CNVN" %}selected{% endif %}>CNVN</option>
+                    <option value="CNCT" {% if candidato.unidade == "CNCT" %}selected{% endif %}>CNCT</option>
+                    <option value="CESP" {% if candidato.unidade == "CESP" %}selected{% endif %}>CESP</option>
                 </select>
             </div>
 
@@ -93,7 +87,7 @@
                     <option value="">Selecione a eleição</option>
                     {% for eleicao in eleicoes %}
                     <option value="{{ eleicao.id }}" {% if candidato.eleicao.id == eleicao.id %}selected{% endif %}>
-                        Eleição {{ eleicao.id }}: {{ eleicao.data_inicio|date:"d/m/Y" }} até {{ eleicao.data_fim|date:"d/m/Y" }}
+                        {{ eleicao.get_unidade_display }} — Eleição {{ eleicao.id }}: {{ eleicao.data_inicio|date:"d/m/Y" }} até {{ eleicao.data_fim|date:"d/m/Y" }}
                     </option>
                     {% endfor %}
                 </select>

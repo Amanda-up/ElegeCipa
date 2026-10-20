@@ -42,6 +42,7 @@ ElegeCIPA-main/                         # raiz do repositório
     │   ├── models.py                    # Eleicao, Eleitor, Candidato e Voto
     │   ├── views.py                     # páginas e regras dos fluxos
     │   ├── senior.py                    # consulta de colaboradores e mapeamento das filiais
+    │   ├── unidades.py                  # agrupamento de filiais em estabelecimentos eleitorais
     │   ├── forms.py                     # formulários
     │   ├── urls.py                      # rotas da aplicação
     │   ├── admin.py                     # integração com Django Admin
@@ -97,7 +98,7 @@ Abra o PowerShell na raiz do projeto, onde estão `manage.py` e `requirements.tx
 
    Para conexão à Senior, copie também as variáveis `SENIOR_DB_*` do `.env.example` para o `.env` e substitua os valores. A integração usa SQL Server via `pyodbc`; instale o [Microsoft ODBC Driver para SQL Server](https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-for-sql-server) indicado em `SENIOR_ODBC_DRIVER`, na mesma arquitetura do Python. Configure um usuário de banco com permissão somente de leitura. A conexão exige TLS (`Encrypt=yes`) e valida o certificado por padrão. Se o servidor usa certificado interno não confiável pelo Windows, peça à equipe de infraestrutura a cadeia de certificados; `SENIOR_DB_TRUST_SERVER_CERTIFICATE=yes` pode ser usado temporariamente em desenvolvimento para confiar no certificado apresentado, mantendo o tráfego criptografado.
 
-   O cadastro de candidatos consulta apenas `sitafa = 1`, `numemp = 1` e as filiais mapeadas: `2` → `HE`, `1` → `CORP`, `4` → `CNBH`, `6` → `CNVN`, `5` → `CNCT` e `15` → `CESP`.
+   A elegibilidade consulta apenas `sitafa = 1`, `numemp = 1` e `tipcol = 1`. As filiais Senior `1` (CORP), `2` (HE) e `7` (LAB) são agrupadas na unidade eleitoral `HE`; `4` → `CNBH`, `6` → `CNVN`, `5` → `CNCT` e `15` → `CESP`. Cada eleição tem estabelecimento e quantidades próprias de efetivos e suplentes. O estabelecimento do eleitor é salvo no campo `Eleitor.unidade` após a validação na Senior.
 
 ## Criar o banco PostgreSQL
 
@@ -170,6 +171,8 @@ O comando `import_matriculas` aceita arquivos `.xlsx`, `.xls` ou `.csv`. Por pad
 python manage.py import_matriculas .\eleitores.xlsx
 python manage.py import_matriculas .\eleitores.csv --mat-col Matricula --cpf-col CPF
 ```
+
+Para gravar o estabelecimento já na importação, inclua uma coluna `codfil` ou `unidade` no arquivo. A coluna `codfil` é mapeada com as regras acima; sem essas colunas, a unidade será preenchida quando o colaborador fizer login e for validado na Senior. Se o arquivo usar outro título de coluna, informe-o com `--filial-col` ou `--unit-col`.
 
 Para selecionar uma planilha pelo nome ou índice, use `--sheet`, por exemplo `--sheet Funcionarios` ou `--sheet 0`. Os nomes das colunas diferenciam maiúsculas de minúsculas. O comando armazena hashes de matrícula e CPF, não os valores originais.
 

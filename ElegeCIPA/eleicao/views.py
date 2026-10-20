@@ -13,14 +13,14 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.http import require_POST
 from django.utils import timezone
 from django.utils.timezone import localtime
-from .forms import EleitorLoginForm, AdminLoginForm
+from .forms import EleitorLoginForm, AdminLoginForm, EleicaoForm
 from .models import Eleitor, Candidato, Voto, Eleicao
 from .utils import hash_matricula
 from .senior import (
     SeniorConnectionError,
     buscar_colaborador_por_matricula,
     buscar_colaboradores,
-    cpf_do_colaborador,
+    dados_do_colaborador_para_login,
 )
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -37,22 +37,37 @@ def eleitor_senior_elegivel(view_func):
     @login_required
     @wraps(view_func)
     def _wrapped(request, *args, **kwargs):
-        if not request.session.get("eleitor_senior_elegivel"):
+        eleitor = Eleitor.objects.filter(user=request.user).first()
+        if (
+            not request.session.get("eleitor_senior_elegivel")
+            or not eleitor
+            or not eleitor.unidade
+        ):
             logout(request)
             messages.error(request, "Faça login novamente para validar sua elegibilidade para votar.")
             return redirect("login")
+        request.eleitor = eleitor
         return view_func(request, *args, **kwargs)
 
     return _wrapped
 
 
 def candidatos_elegiveis_para_voto(eleicao):
-    """Oculta candidatos cujo cargo sinaliza estágio, aprendizagem ou residência."""
-    candidatos = Candidato.objects.filter(eleicao=eleicao)
+    """Retorna apenas candidatos da eleição e unidade, ocultando cargos não elegíveis."""
+    if not eleicao:
+        return Candidato.objects.none()
+    candidatos = Candidato.objects.filter(eleicao=eleicao, unidade=eleicao.unidade)
     cargos_bloqueados = Q()
-    for termo in ("estagi", "aprendiz", "resident"):
+    for termo in ("estag", "academ", "aprendiz", "resident"):
         cargos_bloqueados |= Q(cargo__icontains=termo)
     return candidatos.exclude(cargos_bloqueados)
+
+
+def eleicao_vigente_do_eleitor(request):
+    eleitor = getattr(request, "eleitor", None)
+    if not eleitor or not eleitor.unidade:
+        return None
+    return Eleicao.objects.filter(vigente=True, unidade=eleitor.unidade).first()
 
 
 # Login
@@ -73,23 +88,26 @@ def login_view(request):
                 matricula = matricula.lstrip("0") or "0"
                 cpf = eleitor_form.cleaned_data["cpf"].strip()
                 try:
-                    cpf_senior = cpf_do_colaborador(matricula)
+                    dados_senior = dados_do_colaborador_para_login(matricula)
                 except SeniorConnectionError:
                     error_eleitor = "Não foi possível validar seus dados agora. Tente novamente mais tarde."
                 else:
+                    cpf_senior = dados_senior.get("cpf") if dados_senior else None
+                    unidade_senior = dados_senior.get("unidade") if dados_senior else None
                     cpf_senior = "".join(filter(str.isdigit, str(cpf_senior or ""))).zfill(11)
-                    if not cpf_senior or cpf_senior != cpf:
+                    if not cpf_senior or cpf_senior != cpf or not unidade_senior:
                         error_eleitor = "Matrícula ou CPF inválidos, ou colaborador fora da situação permitida."
                     else:
                         h_matricula = hash_matricula(matricula)
                         h_cpf = hash_matricula(cpf)
                         eleitor, _ = Eleitor.objects.get_or_create(
                             matricula_hash=h_matricula,
-                            defaults={"cpf_hash": h_cpf},
+                            defaults={"cpf_hash": h_cpf, "unidade": unidade_senior},
                         )
-                        if eleitor.cpf_hash != h_cpf:
+                        if eleitor.cpf_hash != h_cpf or eleitor.unidade != unidade_senior:
                             eleitor.cpf_hash = h_cpf
-                            eleitor.save(update_fields=["cpf_hash"])
+                            eleitor.unidade = unidade_senior
+                            eleitor.save(update_fields=["cpf_hash", "unidade"])
                         if not eleitor.user:
                             eleitor.user = User.objects.create(username=f"eleitor_{eleitor.id}")
                             eleitor.save(update_fields=["user"])
@@ -129,16 +147,15 @@ def is_superadmin(user):
 
 @user_passes_test(is_superadmin)
 def painel_admin(request):
-    # Eleição vigente
-    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
-
-    # Consulta candidatos da eleição vigente
-    candidatos = Candidato.objects.filter(eleicao=eleicao_vigente).order_by('nome_completo') if eleicao_vigente else []
+    eleicoes_vigentes = Eleicao.objects.filter(vigente=True).order_by("unidade", "data_inicio")
+    for eleicao in eleicoes_vigentes:
+        eleicao.candidatos_painel = Candidato.objects.filter(
+            eleicao=eleicao,
+            unidade=eleicao.unidade,
+        ).order_by("nome_completo")
 
     return render(request, 'eleicao/painel_admin.html', {
-        'eleicao_vigente': eleicao_vigente,
-        'eleicao_atual': eleicao_vigente,
-        'candidatos': candidatos,
+        'eleicoes_vigentes': eleicoes_vigentes,
     })
 
 
@@ -146,10 +163,15 @@ def painel_admin(request):
 @user_passes_test(is_superadmin)
 def buscar_colaboradores_senior(request):
     termo = request.GET.get("q", "")
+    eleicao_id = request.GET.get("eleicao_id")
+    unidade = None
+    if eleicao_id:
+        eleicao = get_object_or_404(Eleicao, id=eleicao_id, vigente=True)
+        unidade = eleicao.unidade
     if len(termo.strip()) < 2:
         return JsonResponse({"results": []})
     try:
-        colaboradores = buscar_colaboradores(termo)
+        colaboradores = buscar_colaboradores(termo, unidade=unidade)
     except SeniorConnectionError:
         return JsonResponse(
             {"error": "Não foi possível consultar os colaboradores na Senior."},
@@ -172,15 +194,15 @@ def buscar_colaboradores_senior(request):
 
 @user_passes_test(is_superadmin)
 def criar_candidato(request):
-    eleicoes = Eleicao.objects.filter(vigente=True).order_by('-data_inicio')
+    eleicoes = Eleicao.objects.filter(vigente=True).order_by("unidade", "data_inicio")
     if request.method == 'POST':
-        eleicao = get_object_or_404(Eleicao, id=request.POST.get('eleicao_id'))
+        eleicao = get_object_or_404(Eleicao, id=request.POST.get('eleicao_id'), vigente=True)
         matricula = request.POST.get('matricula', '').strip()
         foto = request.FILES.get('foto')
 
         erro_conexao_senior = False
         try:
-            colaborador = buscar_colaborador_por_matricula(matricula)
+            colaborador = buscar_colaborador_por_matricula(matricula, unidade=eleicao.unidade)
         except SeniorConnectionError:
             messages.error(request, "Não foi possível consultar os colaboradores na Senior.")
             colaborador = None
@@ -209,26 +231,31 @@ def criar_candidato(request):
 
     return render(request, 'eleicao/criar_candidato.html', {
         'eleicoes': eleicoes,
-        'selected_eleicao_id': request.POST.get('eleicao_id', ''),
+        'selected_eleicao_id': request.POST.get('eleicao_id', request.GET.get('eleicao_id', '')),
     })
 
 @user_passes_test(is_superadmin)
 def editar_candidato(request, candidato_id):
     candidato = get_object_or_404(Candidato, id=candidato_id)
-    eleicoes = Eleicao.objects.all()  # Todas as eleições para o select
+    eleicoes = Eleicao.objects.filter(vigente=True).order_by("unidade", "data_inicio")
 
     if request.method == 'POST':
+        eleicao_id = request.POST.get('eleicao_id', candidato.eleicao_id)
+        nova_eleicao = get_object_or_404(Eleicao, id=eleicao_id, vigente=True)
         # Candidatos vinculados à Senior não podem alterar seus dados funcionais manualmente.
         if candidato.matricula:
             try:
-                colaborador = buscar_colaborador_por_matricula(candidato.matricula)
+                colaborador = buscar_colaborador_por_matricula(
+                    candidato.matricula,
+                    unidade=nova_eleicao.unidade,
+                )
             except SeniorConnectionError:
                 messages.error(request, "Não foi possível validar o candidato na Senior agora.")
                 return redirect('editar_candidato', candidato_id=candidato.id)
 
-            if not colaborador or not colaborador["unidade"]:
-                messages.error(request, "Este colaborador não atende mais aos critérios para candidatura.")
-                return redirect('painel_admin')
+            if not colaborador:
+                messages.error(request, "O candidato não pertence ao estabelecimento da eleição selecionada.")
+                return redirect('editar_candidato', candidato_id=candidato.id)
 
             candidato.nome_completo = colaborador["nome_completo"]
             candidato.cargo = colaborador["cargo"] or "Não informado"
@@ -241,10 +268,10 @@ def editar_candidato(request, candidato_id):
             candidato.setor = request.POST.get('setor', candidato.setor)
             candidato.unidade = request.POST.get('unidade', candidato.unidade)
 
-        # Atualiza a eleição vinculada
-        eleicao_id = request.POST.get('eleicao_id')
-        if eleicao_id:
-            candidato.eleicao = Eleicao.objects.get(id=eleicao_id)
+        if nova_eleicao.unidade != candidato.unidade:
+            messages.error(request, "O estabelecimento do candidato deve ser o mesmo da eleição.")
+            return redirect('editar_candidato', candidato_id=candidato.id)
+        candidato.eleicao = nova_eleicao
 
         # Atualiza foto apenas se enviada
         if request.FILES.get('foto'):
@@ -286,8 +313,8 @@ def home(request):
 
 @eleitor_senior_elegivel
 def candidatos(request):
-    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
-    candidatos = candidatos_elegiveis_para_voto(eleicao_vigente).order_by('nome_completo') if eleicao_vigente else []
+    eleicao_vigente = eleicao_vigente_do_eleitor(request)
+    candidatos = candidatos_elegiveis_para_voto(eleicao_vigente).order_by('nome_completo')
     
     return render(request, 'eleicao/candidatos.html', {
         'candidatos': candidatos,
@@ -296,7 +323,10 @@ def candidatos(request):
 
 @eleitor_senior_elegivel
 def confirmar_voto(request, candidato_id):
-    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
+    eleicao_vigente = eleicao_vigente_do_eleitor(request)
+    if not eleicao_vigente:
+        messages.error(request, "Não há eleição vigente para o seu estabelecimento.")
+        return redirect('candidatos')
     candidato = get_object_or_404(
         candidatos_elegiveis_para_voto(eleicao_vigente),
         id=candidato_id,
@@ -306,7 +336,7 @@ def confirmar_voto(request, candidato_id):
 @eleitor_senior_elegivel
 def confirmar_voto_branco(request):
     # Verifica se há eleição vigente
-    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
+    eleicao_vigente = eleicao_vigente_do_eleitor(request)
     if not eleicao_vigente:
         messages.error(request, "Não há eleição vigente no momento.")
         return redirect('candidatos')
@@ -315,11 +345,11 @@ def confirmar_voto_branco(request):
 
 @eleitor_senior_elegivel
 def registrar_voto(request, candidato_id):
-    eleitor = get_object_or_404(Eleitor, user=request.user)
-    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
+    eleitor = request.eleitor
+    eleicao_vigente = eleicao_vigente_do_eleitor(request)
 
     if not eleicao_vigente:
-        messages.error(request, "Não há eleição vigente no momento.")
+        messages.error(request, "Não há eleição vigente para o seu estabelecimento.")
         return redirect('candidatos')
 
     candidato = get_object_or_404(
@@ -347,11 +377,11 @@ def registrar_voto(request, candidato_id):
 
 @eleitor_senior_elegivel
 def registrar_voto_branco(request):
-    eleitor = get_object_or_404(Eleitor, user=request.user)
-    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
+    eleitor = request.eleitor
+    eleicao_vigente = eleicao_vigente_do_eleitor(request)
 
     if not eleicao_vigente:
-        messages.error(request, "Não há eleição vigente no momento.")
+        messages.error(request, "Não há eleição vigente para o seu estabelecimento.")
         return redirect('candidatos')
 
     # CORREÇÃO: Verifica se já votou nesta eleição específica
@@ -380,53 +410,48 @@ def protocolo_voto(request, voto_id):
 
 @user_passes_test(is_superadmin)
 def criar_eleicao(request):
-    # Verifica se já existe eleição vigente
-    eleicao_atual = Eleicao.objects.filter(vigente=True).first()
-    if eleicao_atual:
-        # Retorna o template com alerta
-        return render(request, "eleicao/criar_eleicao.html", {
-            "alert_msg": "Existe eleição em andamento, gentileza encerrar antes de criar uma nova.",
-            "eleicao_atual": eleicao_atual
-        })
-
-    if request.method == "POST":
-        data_inicio = request.POST.get("data_inicio")
-        data_fim = request.POST.get("data_fim")
-
-        # Cria a nova eleição como vigente
-        eleicao = Eleicao.objects.create(
-            data_inicio=data_inicio,
-            data_fim=data_fim,
-            vigente=True
-        )
-        messages.success(request, f"Eleição criada com sucesso! ID: {eleicao.id}")
-        return redirect('painel_admin')
-
-    return render(request, "eleicao/criar_eleicao.html")
+    form = EleicaoForm(request.POST or None)
+    if request.method == "POST" and form.is_valid():
+        unidade = form.cleaned_data["unidade"]
+        if Eleicao.objects.filter(vigente=True, unidade=unidade).exists():
+            form.add_error("unidade", "Já existe uma eleição vigente para este estabelecimento.")
+        else:
+            eleicao = form.save(vigente=True)
+            messages.success(request, f"Eleição criada para {eleicao.get_unidade_display()}!")
+            return redirect('painel_admin')
+    return render(request, "eleicao/criar_eleicao.html", {"form": form})
 
 @user_passes_test(is_superadmin)
 def editar_eleicao(request, eleicao_id):
     eleicao = get_object_or_404(Eleicao, id=eleicao_id)
-
+    vigente_atual = request.POST.get("vigente") == "on" if request.method == "POST" else eleicao.vigente
+    form = EleicaoForm(request.POST or None, instance=eleicao)
     if request.method == 'POST':
-        eleicao.data_inicio = request.POST.get('data_inicio', eleicao.data_inicio)
-        eleicao.data_fim = request.POST.get('data_fim', eleicao.data_fim)
         vigente = request.POST.get("vigente") == "on"
-
-        # CORREÇÃO: Só desmarca outras eleições se esta estiver sendo marcada como vigente
-        if vigente and not eleicao.vigente:
-            Eleicao.objects.exclude(id=eleicao_id).update(vigente=False)
-
-        eleicao.vigente = vigente
-        eleicao.save()
-        messages.success(request, 'Eleição atualizada com sucesso!')
-        return redirect('painel_admin')
-
-    return render(request, 'eleicao/editar_eleicao.html', {'eleicao': eleicao})
+        if form.is_valid():
+            unidade = form.cleaned_data["unidade"]
+            if unidade != eleicao.unidade and (eleicao.candidatos.exists() or eleicao.votos.exists()):
+                form.add_error("unidade", "Não é possível mudar o estabelecimento depois de cadastrar candidatos ou votos.")
+            elif vigente and Eleicao.objects.filter(vigente=True, unidade=unidade).exclude(pk=eleicao.pk).exists():
+                form.add_error("unidade", "Já existe outra eleição vigente para este estabelecimento.")
+            elif eleicao.votos.exists() and (
+                form.cleaned_data["vagas_efetivos"] != eleicao.vagas_efetivos
+                or form.cleaned_data["vagas_suplentes"] != eleicao.vagas_suplentes
+            ):
+                form.add_error(None, "As quantidades de efetivos e suplentes não podem mudar após o primeiro voto.")
+            else:
+                form.save(vigente=vigente)
+                messages.success(request, 'Eleição atualizada com sucesso!')
+                return redirect('painel_admin')
+    return render(request, 'eleicao/editar_eleicao.html', {
+        'eleicao': eleicao,
+        'form': form,
+        'vigente_atual': vigente_atual,
+    })
 
 @user_passes_test(is_superadmin)
 def eleicoes_anteriores(request):
-    eleicoes = Eleicao.objects.filter(vigente=False).order_by('-data_inicio')
+    eleicoes = Eleicao.objects.filter(vigente=False).order_by('-data_inicio', 'unidade')
     return render(request, 'eleicao/eleicoes_anteriores.html', {'eleicoes': eleicoes})
 
 @user_passes_test(is_superadmin)
@@ -438,7 +463,7 @@ def detalhes_eleicao(request, eleicao_id):
 @user_passes_test(is_superadmin)
 def escolher_eleicao_encerrar(request):
     # Busca apenas eleições vigentes
-    eleicoes_vigentes = Eleicao.objects.filter(vigente=True).order_by('data_inicio')
+    eleicoes_vigentes = Eleicao.objects.filter(vigente=True).order_by('unidade', 'data_inicio')
 
     if request.method == "POST":
         eleicao_id = request.POST.get("eleicao_id")
@@ -468,11 +493,14 @@ def encerrar_eleicao(request, eleicao_id):
 
 @user_passes_test(is_superadmin)
 def apuracao_votos(request, eleicao_id=None):
-    # Se não foi passado um ID específico, busca a eleição vigente
+    # Sem ID, abre a escolha quando há eleições vigentes em mais de uma unidade.
     if eleicao_id:
         eleicao = get_object_or_404(Eleicao, id=eleicao_id)
     else:
-        eleicao = Eleicao.objects.filter(vigente=True).first()
+        vigentes = Eleicao.objects.filter(vigente=True).order_by("unidade")
+        if vigentes.count() > 1:
+            return redirect("escolher_eleicao_apurar")
+        eleicao = vigentes.first()
     
     if not eleicao:
         return render(request, 'eleicao/apuracao_votos.html', {
@@ -485,11 +513,16 @@ def apuracao_votos(request, eleicao_id=None):
             'eleicao_atual': None
         })
     
-    # Candidatos com votos
+    votos_da_eleicao = Voto.objects.filter(eleicao=eleicao)
+
+    # Candidatos e votos ficam restritos ao estabelecimento da eleição.
     candidatos_com_votos = (
         Candidato.objects
-        .filter(eleicao=eleicao)
-        .annotate(total_votos=Count('votos'))
+        .filter(eleicao=eleicao, unidade=eleicao.unidade)
+        .annotate(total_votos=Count(
+            'votos',
+            filter=Q(votos__eleicao=eleicao),
+        ))
         .filter(total_votos__gt=0)
         .order_by('-total_votos', 'nome_completo')
     )
@@ -497,27 +530,29 @@ def apuracao_votos(request, eleicao_id=None):
     # Candidatos sem votos
     candidatos_sem_votos = (
         Candidato.objects
-        .filter(eleicao=eleicao)
-        .annotate(total_votos=Count('votos'))
+        .filter(eleicao=eleicao, unidade=eleicao.unidade)
+        .annotate(total_votos=Count(
+            'votos',
+            filter=Q(votos__eleicao=eleicao),
+        ))
         .filter(total_votos=0)
         .order_by('nome_completo')
     )
     
     # CORREÇÃO: Calcular totais de votos
-    votos_brancos = Voto.objects.filter(
-        voto_branco=True,
-        eleicao=eleicao
-    ).count()
+    votos_brancos = votos_da_eleicao.filter(voto_branco=True).count()
     
-    total_votos = Voto.objects.filter(eleicao=eleicao).count()
+    total_votos = votos_da_eleicao.count()
     votos_validos = total_votos - votos_brancos
+    total_eleitores = Eleitor.objects.filter(unidade=eleicao.unidade).count()
 
-    # 6 mais votados são eleitos, 4 seguintes são suplentes
-    eleitos = candidatos_com_votos[:6]
-    suplentes = candidatos_com_votos[6:10]
+    eleitos = candidatos_com_votos[:eleicao.vagas_efetivos]
+    suplentes_inicio = eleicao.vagas_efetivos
+    suplentes = candidatos_com_votos[suplentes_inicio:suplentes_inicio + eleicao.vagas_suplentes]
     
     # Não eleitos = resto dos candidatos com votos + todos os candidatos sem votos
-    nao_eleitos = list(candidatos_com_votos[10:]) + list(candidatos_sem_votos)
+    classificados = eleicao.vagas_efetivos + eleicao.vagas_suplentes
+    nao_eleitos = list(candidatos_com_votos[classificados:]) + list(candidatos_sem_votos)
 
     return render(request, 'eleicao/apuracao_votos.html', {
         'eleitos': eleitos,
@@ -526,13 +561,14 @@ def apuracao_votos(request, eleicao_id=None):
         'votos_brancos': votos_brancos,
         'votos_validos': votos_validos, 
         'total_votos': total_votos,      
+        'total_eleitores': total_eleitores,
         'eleicao_atual': eleicao
     })
 
 @user_passes_test(is_superadmin)
 def escolher_eleicao_apurar(request):
     # Busca todas as eleições (vigentes e encerradas)
-    eleicoes = Eleicao.objects.all().order_by('-data_inicio')
+    eleicoes = Eleicao.objects.all().order_by('-data_inicio', 'unidade')
 
     if request.method == "POST":
         eleicao_id = request.POST.get("eleicao_id")
@@ -545,17 +581,20 @@ def escolher_eleicao_apurar(request):
         "eleicoes": eleicoes
     })
 
-@login_required
+@user_passes_test(is_superadmin)
 def gerar_extrato_pdf(request, eleicao_id=None):
     if eleicao_id:
         eleicao = get_object_or_404(Eleicao, id=eleicao_id)
     else:
-        eleicao = Eleicao.objects.filter(vigente=True).first()
+        vigentes = Eleicao.objects.filter(vigente=True).order_by("unidade")
+        if vigentes.count() > 1:
+            return redirect("escolher_eleicao_apurar")
+        eleicao = vigentes.first()
     
     if eleicao:
         # CORREÇÃO: Filtrar pela relação direta com a eleição, não apenas pelas datas
         votos = Voto.objects.filter(
-            eleicao=eleicao  # CORREÇÃO AQUI - usar o campo eleicao
+            eleicao=eleicao,
         ).select_related('eleitor', 'candidato').order_by('data_hora')
         
         periodo_texto = f"{eleicao.data_inicio.strftime('%d/%m/%Y')} a {eleicao.data_fim.strftime('%d/%m/%Y')}"
@@ -572,7 +611,7 @@ def gerar_extrato_pdf(request, eleicao_id=None):
     total_votos = votos.count()
     votos_brancos = votos.filter(voto_branco=True).count()
     votos_validos = total_votos - votos_brancos
-    total_eleitores = Eleitor.objects.count()
+    total_eleitores = Eleitor.objects.filter(unidade=eleicao.unidade).count() if eleicao else 0
     porcentagem_votos = (total_votos / total_eleitores * 100) if total_eleitores > 0 else 0
 
     response = HttpResponse(content_type='application/pdf')
@@ -597,7 +636,8 @@ def gerar_extrato_pdf(request, eleicao_id=None):
         cabecalho_x = 2 * cm
 
     p.setFont("Helvetica-Bold", 14)
-    p.drawString(cabecalho_x, altura - 2 * cm, f"Extrato de Votos - Eleições CIPA {periodo_texto}")
+    unidade_texto = eleicao.get_unidade_display() if eleicao else "Todas as unidades"
+    p.drawString(cabecalho_x, altura - 2 * cm, f"Extrato CIPA - {unidade_texto} - {periodo_texto}")
     
     p.setFont("Helvetica-Bold", 11)
     y = altura - 3.5 * cm

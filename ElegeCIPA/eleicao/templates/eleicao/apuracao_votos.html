@@ -16,7 +16,8 @@
                 </h1>
             </div>
 
-            <span class="text-gray-700 font-medium">
+            <span class="text-gray-700 font-medium text-center">
+                {{ eleicao_atual.get_unidade_display }}<br>
                 Período: {{ eleicao_atual.data_inicio|date:"d/m/Y" }} - {{ eleicao_atual.data_fim|date:"d/m/Y" }}
             </span>
 
@@ -39,8 +40,7 @@
 
         <hr class="border-[#004876] mb-6">
 
-        <!-- Candidatos Eleitos (6 mais votados) -->
-        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Candidatos Eleitos</h2>
+        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Efetivos ({{ eleicao_atual.vagas_efetivos }} vagas)</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
             {% for c in eleitos %}
             <div
@@ -65,8 +65,7 @@
             {% endfor %}
         </div>
 
-        <!-- Candidatos Suplementes (4 seguintes) -->
-        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Candidatos Suplementes</h2>
+        <h2 class="text-2xl font-semibold text-[#004876] mb-4">Suplentes ({{ eleicao_atual.vagas_suplentes }} vagas)</h2>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
             {% for c in suplementes %}
             <div
@@ -124,11 +123,16 @@
         <!-- Resumo -->
         <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <h3 class="text-xl font-semibold text-gray-700 mb-4">Resumo da Eleição</h3>
-            <div class="grid grid-cols-1 md:grid-cols-6 gap-4 text-center">
+            <div class="grid grid-cols-1 md:grid-cols-7 gap-4 text-center">
                 <!-- Total de Votos -->
                 <div class="bg-purple-50 p-4 rounded-lg">
                     <p class="text-2xl font-bold text-purple-700">{{ total_votos }}</p>
                     <p class="text-purple-600 text-sm">Total de Votos</p>
+                </div>
+
+                <div class="bg-indigo-50 p-4 rounded-lg">
+                    <p class="text-2xl font-bold text-indigo-700">{{ total_eleitores }}</p>
+                    <p class="text-indigo-600 text-sm">Eleitores deste estabelecimento</p>
                 </div>
 
                 <!-- Votos Válidos -->

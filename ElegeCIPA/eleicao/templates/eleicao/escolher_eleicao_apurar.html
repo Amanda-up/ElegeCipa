@@ -22,10 +22,11 @@
                         <label for="eleicao_{{ eleicao.id }}" class="flex-1 cursor-pointer">
                             <div class="flex justify-between items-center">
                                 <div>
-                                    <span class="font-semibold text-[#004876]">Eleição {{ eleicao.id }}</span>
+                                    <span class="font-semibold text-[#004876]">{{ eleicao.get_unidade_display }} — Eleição {{ eleicao.id }}</span>
                                     <p class="text-sm text-gray-600">
                                         {{ eleicao.data_inicio|date:"d/m/Y" }} - {{ eleicao.data_fim|date:"d/m/Y" }}
                                     </p>
+                                    <p class="text-sm text-gray-600">{{ eleicao.vagas_efetivos }} efetivos e {{ eleicao.vagas_suplentes }} suplentes</p>
                                 </div>
                                 <div class="text-right">
                                     {% if eleicao.vigente %}

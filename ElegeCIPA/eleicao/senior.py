@@ -1,21 +1,13 @@
 """Consultas somente de leitura ao cadastro de colaboradores da Senior."""
 
 from ConexaoSQL import DatabaseConnectionSQL
+from .unidades import FILIAL_PARA_UNIDADE, FILIAIS_POR_UNIDADE
 
-
-FILIAL_PARA_UNIDADE = {
-    2: "HE",
-    1: "CORP",
-    4: "CNBH",
-    6: "CNVN",
-    5: "CNCT",
-    15: "CESP",
-}
 
 FILIAIS_ELEGIVEIS = tuple(FILIAL_PARA_UNIDADE)
 EMPRESA_ELEGIVEL = 1
 SITUACAO_TRABALHANDO = 1
-CARGOS_NAO_ELEGIVEIS = ("%ESTAGI%", "%APRENDIZ%", "%RESIDENTE%")
+CARGOS_NAO_ELEGIVEIS = ("ESTAG%", "ACADEM%", "APRENDIZ%", "RESIDENTE%")
 
 BASE_SELECT = """
     SELECT DISTINCT TOP (50)
@@ -34,6 +26,7 @@ BASE_SELECT = """
     WHERE a.sitafa = ?
       AND a.numemp = ?
       AND a.tipcol = 1
+      AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
       AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
       AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
       AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
@@ -69,14 +62,26 @@ def _preparar_colaborador(registro):
     return colaborador
 
 
-def buscar_colaboradores(termo):
+def _filtro_filiais(unidade=None):
+    if unidade:
+        filiais = FILIAIS_POR_UNIDADE.get(unidade, ())
+    else:
+        filiais = FILIAIS_ELEGIVEIS
+    if not filiais:
+        return "AND 1 = 0", ()
+    placeholders = ", ".join("?" for _ in filiais)
+    return f"AND a.codfil IN ({placeholders})", tuple(filiais)
+
+
+def buscar_colaboradores(termo, unidade=None):
     termo = str(termo or "").strip()
     if len(termo) < 2:
         return []
 
     termo_matricula = termo.lstrip("0") or "0"
-    sql = BASE_SELECT + """
-      AND a.codfil IN (2, 1, 4, 6, 5, 15)
+    filtro_filiais, parametros_filiais = _filtro_filiais(unidade)
+    sql = BASE_SELECT + f"""
+      {filtro_filiais}
       AND (
           a.nomfun LIKE ?
           OR CONVERT(varchar(20), a.numcad) LIKE ?
@@ -89,6 +94,7 @@ def buscar_colaboradores(termo):
             SITUACAO_TRABALHANDO,
             EMPRESA_ELEGIVEL,
             *CARGOS_NAO_ELEGIVEIS,
+            *parametros_filiais,
             f"%{termo}%",
             f"%{termo_matricula}%",
         ),
@@ -96,32 +102,39 @@ def buscar_colaboradores(termo):
     return [_preparar_colaborador(registro) for registro in registros]
 
 
-def buscar_colaborador_por_matricula(matricula):
+def buscar_colaborador_por_matricula(matricula, unidade=None):
     matricula = str(matricula or "").strip()
     matricula = matricula.lstrip("0") or "0"
     if not matricula.isdigit():
         return None
 
-    sql = BASE_SELECT.replace("SELECT TOP (50)", "SELECT TOP (1)") + """
-      AND a.codfil IN (2, 1, 4, 6, 5, 15)
+    filtro_filiais, parametros_filiais = _filtro_filiais(unidade)
+    sql = BASE_SELECT.replace("SELECT DISTINCT TOP (50)", "SELECT DISTINCT TOP (1)") + f"""
+      {filtro_filiais}
       AND CONVERT(varchar(20), a.numcad) = ?
       ORDER BY matricula
     """
     registros = _executar_consulta(
         sql,
-        (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, *CARGOS_NAO_ELEGIVEIS, matricula),
+        (
+            SITUACAO_TRABALHANDO,
+            EMPRESA_ELEGIVEL,
+            *CARGOS_NAO_ELEGIVEIS,
+            *parametros_filiais,
+            matricula,
+        ),
     )
     return _preparar_colaborador(registros[0]) if registros else None
 
 
-def cpf_do_colaborador(matricula):
+def dados_do_colaborador_para_login(matricula):
     matricula = str(matricula or "").strip()
     matricula = matricula.lstrip("0") or "0"
     if not matricula.isdigit():
         return None
 
     sql = """
-        SELECT TOP (1) a.numcpf AS cpf
+        SELECT TOP (1) a.numcpf AS cpf, a.codfil AS cd_filial
         FROM r034fun a
         LEFT JOIN r024car b ON b.codcar = a.codcar
         WHERE a.sitafa = ?
@@ -130,11 +143,28 @@ def cpf_do_colaborador(matricula):
           AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
           AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
           AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
+          AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
+          AND a.codfil IN (1, 2, 7, 4, 6, 5, 15)
           AND CONVERT(varchar(20), a.numcad) = ?
     """
     registros = _executar_consulta(
         sql,
         (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, *CARGOS_NAO_ELEGIVEIS, matricula),
     )
-    return registros[0].get("cpf") if registros else None
+    if not registros:
+        return None
+    registro = registros[0]
+    try:
+        unidade = FILIAL_PARA_UNIDADE.get(int(registro.get("cd_filial")))
+    except (TypeError, ValueError):
+        unidade = None
+    if not unidade:
+        return None
+    return {"cpf": registro.get("cpf"), "unidade": unidade}
+
+
+def cpf_do_colaborador(matricula):
+    """Compatibilidade com chamadas antigas que só precisam do CPF."""
+    dados = dados_do_colaborador_para_login(matricula)
+    return dados["cpf"] if dados else None
 
