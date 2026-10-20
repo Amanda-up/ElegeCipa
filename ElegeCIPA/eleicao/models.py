@@ -58,6 +58,7 @@ class Candidato(models.Model):
 
     matricula = models.CharField("Matrícula", max_length=20, blank=True, null=True, db_index=True)
     nome_completo = models.CharField(max_length=120)
+    data_admissao = models.DateField("Data de admissão", null=True, blank=True, db_index=True)
     cargo = models.CharField(max_length=100)
     setor = models.CharField(max_length=100)
     unidade = models.CharField(max_length=10, choices=UNIDADES)

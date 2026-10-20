@@ -13,6 +13,7 @@ BASE_SELECT = """
     SELECT DISTINCT TOP (50)
         CONVERT(varchar(20), a.numcad) AS matricula,
         a.nomfun AS nome_completo,
+        a.datadm AS data_admissao,
         a.codcar AS cd_cargo,
         b.titred AS ds_cargo,
         a.codccu AS cd_centro_custo,

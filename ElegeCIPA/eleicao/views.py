@@ -4,11 +4,12 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib import messages
 from django.http import HttpResponse
 from django.http import JsonResponse
-from django.db.models import Count, Q
+from django.db.models import Count, F, Q
 from functools import wraps
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
+from reportlab.pdfbase import pdfmetrics
 from django.contrib.auth.decorators import login_required, user_passes_test
 from django.views.decorators.http import require_POST
 from django.utils import timezone
@@ -28,6 +29,7 @@ from django.core.exceptions import ValidationError
 from reportlab.lib.utils import ImageReader
 import os
 from django.conf import settings
+from django.contrib.staticfiles import finders
 
 User = get_user_model()
 
@@ -220,6 +222,7 @@ def criar_candidato(request):
             Candidato.objects.create(
                 matricula=colaborador["matricula"],
                 nome_completo=colaborador["nome_completo"],
+                data_admissao=colaborador.get("data_admissao"),
                 cargo=colaborador["cargo"] or "Não informado",
                 setor=colaborador["setor"] or "Não informado",
                 unidade=colaborador["unidade"],
@@ -258,6 +261,7 @@ def editar_candidato(request, candidato_id):
                 return redirect('editar_candidato', candidato_id=candidato.id)
 
             candidato.nome_completo = colaborador["nome_completo"]
+            candidato.data_admissao = colaborador.get("data_admissao")
             candidato.cargo = colaborador["cargo"] or "Não informado"
             candidato.setor = colaborador["setor"] or "Não informado"
             candidato.unidade = colaborador["unidade"]
@@ -524,7 +528,12 @@ def apuracao_votos(request, eleicao_id=None):
             filter=Q(votos__eleicao=eleicao),
         ))
         .filter(total_votos__gt=0)
-        .order_by('-total_votos', 'nome_completo')
+        .order_by(
+            '-total_votos',
+            F('data_admissao').asc(nulls_last=True),
+            'matricula',
+            'pk',
+        )
     )
     
     # Candidatos sem votos
@@ -620,33 +629,117 @@ def gerar_extrato_pdf(request, eleicao_id=None):
     p = canvas.Canvas(response, pagesize=A4)
     largura, altura = A4
 
+    logo = None
     try:
-        logo_path = os.path.join(
-            settings.BASE_DIR, 
-            'ElegeCIPA', 'eleicao', 'static', 'eleicao', 'img', 'logo.png'
-        )
-        
+        logo_path = finders.find("eleicao/img/logo.png")
+        if not logo_path:
+            logo_path = os.path.join(
+                settings.BASE_DIR,
+                "ElegeCIPA", "eleicao", "static", "eleicao", "img", "logo.png",
+            )
         if os.path.exists(logo_path):
             logo = ImageReader(logo_path)
-            p.drawImage(logo, 0.5 * cm, altura - 2.5 * cm, width=2.5 * cm, height=2.5 * cm, preserveAspectRatio=True)
-            cabecalho_x = 3.5 * cm
-        else:
-            cabecalho_x = 2 * cm
-    except Exception as e:
-        cabecalho_x = 2 * cm
+    except Exception:
+        logo = None
 
-    p.setFont("Helvetica-Bold", 14)
+    cabecalho_x = 3.5 * cm if logo else 2 * cm
+
     unidade_texto = eleicao.get_unidade_display() if eleicao else "Todas as unidades"
-    p.drawString(cabecalho_x, altura - 2 * cm, f"Extrato CIPA - {unidade_texto} - {periodo_texto}")
-    
-    p.setFont("Helvetica-Bold", 11)
-    y = altura - 3.5 * cm
-    p.drawString(1 * cm, y, "#")
-    p.drawString(2 * cm, y, "Data / Hora")
-    p.drawString(7 * cm, y, "Candidato")
-    p.drawString(14 * cm, y, "Protocolo")
-    y -= 0.5 * cm
-    p.setFont("Helvetica", 10)
+
+    def desenhar_titulo_extrato():
+        if logo:
+            p.drawImage(
+                logo,
+                0.5 * cm,
+                altura - 2.5 * cm,
+                width=2.5 * cm,
+                height=2.5 * cm,
+                preserveAspectRatio=True,
+                mask="auto",
+            )
+        p.setFont("Helvetica-Bold", 14)
+        p.drawString(cabecalho_x, altura - 2 * cm, f"Extrato CIPA - {unidade_texto} - {periodo_texto}")
+
+    desenhar_titulo_extrato()
+
+    if eleicao:
+        classificacao = (
+            Candidato.objects
+            .filter(eleicao=eleicao, unidade=eleicao.unidade)
+            .annotate(total_votos=Count(
+                "votos",
+                filter=Q(votos__eleicao=eleicao),
+            ))
+            .order_by(
+                "-total_votos",
+                F("data_admissao").asc(nulls_last=True),
+                "matricula",
+                "pk",
+            )
+        )
+        y = altura - 3 * cm
+        p.setFont("Helvetica-Bold", 12)
+        p.drawString(1 * cm, y, "CLASSIFICAÇÃO DOS CANDIDATOS")
+        y -= 0.7 * cm
+
+        def desenhar_cabecalho_classificacao():
+            p.setFont("Helvetica-Bold", 10)
+            p.drawString(1 * cm, y, "#")
+            p.drawString(2 * cm, y, "Candidato")
+            p.drawString(13 * cm, y, "Votos")
+
+        desenhar_cabecalho_classificacao()
+        y -= 0.5 * cm
+        p.setFont("Helvetica", 9)
+        for posicao, candidato in enumerate(classificacao, start=1):
+            if y < 2 * cm:
+                p.showPage()
+                desenhar_titulo_extrato()
+                y = altura - 2 * cm
+                p.setFont("Helvetica-Bold", 12)
+                p.drawString(1 * cm, y, "CLASSIFICAÇÃO DOS CANDIDATOS (continuação)")
+                y -= 0.7 * cm
+                desenhar_cabecalho_classificacao()
+                y -= 0.5 * cm
+                p.setFont("Helvetica", 9)
+
+            nome = candidato.nome_completo
+            largura_maxima_nome = 10.5 * cm
+            while nome and pdfmetrics.stringWidth(nome, "Helvetica", 9) > largura_maxima_nome:
+                nome = nome[:-1]
+            if nome != candidato.nome_completo:
+                nome = nome.rstrip() + "..."
+            p.drawString(1 * cm, y, f"{posicao}.")
+            p.drawString(2 * cm, y, nome)
+            p.drawString(13 * cm, y, str(candidato.total_votos))
+            y -= 0.45 * cm
+
+        p.showPage()
+
+    def desenhar_cabecalho_votos():
+        desenhar_titulo_extrato()
+        y_cabecalho = altura - 3.5 * cm
+        p.setFont("Helvetica-Bold", 11)
+        p.drawString(1 * cm, y_cabecalho, "#")
+        p.drawString(2 * cm, y_cabecalho, "Data / Hora")
+        p.drawString(7 * cm, y_cabecalho, "Candidato")
+        p.drawString(15 * cm, y_cabecalho, "Protocolo")
+        p.setFont("Helvetica", 10)
+        return y_cabecalho - 0.5 * cm
+
+    y = desenhar_cabecalho_votos()
+    candidato_x = 7 * cm
+    protocolo_x = 15 * cm
+    largura_maxima_candidato = protocolo_x - candidato_x - 0.3 * cm
+    largura_maxima_protocolo = largura - protocolo_x - 1 * cm
+
+    def limitar_texto(texto, largura_maxima):
+        texto = str(texto or "")
+        if pdfmetrics.stringWidth(texto, "Helvetica", 10) <= largura_maxima:
+            return texto
+        while texto and pdfmetrics.stringWidth(texto + "...", "Helvetica", 10) > largura_maxima:
+            texto = texto[:-1]
+        return texto.rstrip() + "..."
 
     numero_linha = 1
     for voto in votos:
@@ -658,33 +751,25 @@ def gerar_extrato_pdf(request, eleicao_id=None):
         else:
             texto_candidato = voto.candidato.nome_completo if voto.candidato else "Candidato não encontrado"
             
-        texto_protocolo = voto.protocolo
+        texto_candidato = limitar_texto(texto_candidato, largura_maxima_candidato)
+        texto_protocolo = limitar_texto(voto.protocolo, largura_maxima_protocolo)
 
         p.drawString(1 * cm, y, f"{numero_linha}.")
         p.drawString(2 * cm, y, texto_data)
-        p.drawString(7 * cm, y, texto_candidato)
-        p.drawString(14 * cm, y, texto_protocolo)
+        p.drawString(candidato_x, y, texto_candidato)
+        p.drawString(protocolo_x, y, texto_protocolo)
         
         y -= 0.5 * cm
         numero_linha += 1
 
         if y < 2 * cm:
             p.showPage()
-            y = altura - 2 * cm
-            p.setFont("Helvetica", 10)
-            
-            p.setFont("Helvetica-Bold", 11)
-            p.drawString(1 * cm, y, "#")
-            p.drawString(2 * cm, y, "Data / Hora")
-            p.drawString(7 * cm, y, "Candidato")
-            p.drawString(14 * cm, y, "Protocolo")
-            y -= 0.5 * cm
-            p.setFont("Helvetica", 10)
+            y = desenhar_cabecalho_votos()
 
     if y < 3 * cm:
         p.showPage()
-        y = altura - 2 * cm
-        p.setFont("Helvetica", 10)
+        desenhar_titulo_extrato()
+        y = altura - 3 * cm
 
     # RESUMO ESTATÍSTICO - NOVO
     p.setFont("Helvetica-Bold", 12)
