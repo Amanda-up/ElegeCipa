@@ -15,6 +15,7 @@ FILIAL_PARA_UNIDADE = {
 FILIAIS_ELEGIVEIS = tuple(FILIAL_PARA_UNIDADE)
 EMPRESA_ELEGIVEL = 1
 SITUACAO_TRABALHANDO = 1
+CARGOS_NAO_ELEGIVEIS = ("%ESTAGI%", "%APRENDIZ%", "%RESIDENTE%")
 
 BASE_SELECT = """
     SELECT DISTINCT TOP (50)
@@ -33,6 +34,9 @@ BASE_SELECT = """
     WHERE a.sitafa = ?
       AND a.numemp = ?
       AND a.tipcol = 1
+      AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
+      AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
+      AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
 """
 
 
@@ -81,7 +85,13 @@ def buscar_colaboradores(termo):
     """
     registros = _executar_consulta(
         sql,
-        (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, f"%{termo}%", f"%{termo_matricula}%"),
+        (
+            SITUACAO_TRABALHANDO,
+            EMPRESA_ELEGIVEL,
+            *CARGOS_NAO_ELEGIVEIS,
+            f"%{termo}%",
+            f"%{termo_matricula}%",
+        ),
     )
     return [_preparar_colaborador(registro) for registro in registros]
 
@@ -99,7 +109,7 @@ def buscar_colaborador_por_matricula(matricula):
     """
     registros = _executar_consulta(
         sql,
-        (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, matricula),
+        (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, *CARGOS_NAO_ELEGIVEIS, matricula),
     )
     return _preparar_colaborador(registros[0]) if registros else None
 
@@ -113,14 +123,18 @@ def cpf_do_colaborador(matricula):
     sql = """
         SELECT TOP (1) a.numcpf AS cpf
         FROM r034fun a
+        LEFT JOIN r024car b ON b.codcar = a.codcar
         WHERE a.sitafa = ?
           AND a.numemp = ?
           AND a.tipcol = 1
+          AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
+          AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
+          AND UPPER(ISNULL(b.titred, '')) NOT LIKE ?
           AND CONVERT(varchar(20), a.numcad) = ?
     """
     registros = _executar_consulta(
         sql,
-        (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, matricula),
+        (SITUACAO_TRABALHANDO, EMPRESA_ELEGIVEL, *CARGOS_NAO_ELEGIVEIS, matricula),
     )
     return registros[0].get("cpf") if registros else None
 

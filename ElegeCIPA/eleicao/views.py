@@ -4,7 +4,8 @@ from django.contrib.auth import login, logout, get_user_model
 from django.contrib import messages
 from django.http import HttpResponse
 from django.http import JsonResponse
-from django.db.models import Count
+from django.db.models import Count, Q
+from functools import wraps
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
@@ -29,6 +30,29 @@ import os
 from django.conf import settings
 
 User = get_user_model()
+
+
+def eleitor_senior_elegivel(view_func):
+    """Exige sessão criada após validação de elegibilidade na Senior."""
+    @login_required
+    @wraps(view_func)
+    def _wrapped(request, *args, **kwargs):
+        if not request.session.get("eleitor_senior_elegivel"):
+            logout(request)
+            messages.error(request, "Faça login novamente para validar sua elegibilidade para votar.")
+            return redirect("login")
+        return view_func(request, *args, **kwargs)
+
+    return _wrapped
+
+
+def candidatos_elegiveis_para_voto(eleicao):
+    """Oculta candidatos cujo cargo sinaliza estágio, aprendizagem ou residência."""
+    candidatos = Candidato.objects.filter(eleicao=eleicao)
+    cargos_bloqueados = Q()
+    for termo in ("estagi", "aprendiz", "resident"):
+        cargos_bloqueados |= Q(cargo__icontains=termo)
+    return candidatos.exclude(cargos_bloqueados)
 
 
 # Login
@@ -70,6 +94,7 @@ def login_view(request):
                             eleitor.user = User.objects.create(username=f"eleitor_{eleitor.id}")
                             eleitor.save(update_fields=["user"])
                         login(request, eleitor.user)
+                        request.session["eleitor_senior_elegivel"] = True
                         return redirect("candidatos")
 
         # Login admin
@@ -80,6 +105,7 @@ def login_view(request):
                 user = admin_form.get_user()
                 if user and user.is_active and user.is_superuser:
                     login(request, user)
+                    request.session.pop("eleitor_senior_elegivel", None)
                     return redirect("painel_admin")
                 error_admin = "Usuário/senha incorretos ou sem permissão."
             else:
@@ -192,11 +218,28 @@ def editar_candidato(request, candidato_id):
     eleicoes = Eleicao.objects.all()  # Todas as eleições para o select
 
     if request.method == 'POST':
-        # Atualiza os campos do candidato
-        candidato.nome_completo = request.POST.get('nome_completo', candidato.nome_completo)
-        candidato.cargo = request.POST.get('cargo', candidato.cargo)
-        candidato.setor = request.POST.get('setor', candidato.setor)
-        candidato.unidade = request.POST.get('unidade', candidato.unidade)
+        # Candidatos vinculados à Senior não podem alterar seus dados funcionais manualmente.
+        if candidato.matricula:
+            try:
+                colaborador = buscar_colaborador_por_matricula(candidato.matricula)
+            except SeniorConnectionError:
+                messages.error(request, "Não foi possível validar o candidato na Senior agora.")
+                return redirect('editar_candidato', candidato_id=candidato.id)
+
+            if not colaborador or not colaborador["unidade"]:
+                messages.error(request, "Este colaborador não atende mais aos critérios para candidatura.")
+                return redirect('painel_admin')
+
+            candidato.nome_completo = colaborador["nome_completo"]
+            candidato.cargo = colaborador["cargo"] or "Não informado"
+            candidato.setor = colaborador["setor"] or "Não informado"
+            candidato.unidade = colaborador["unidade"]
+        else:
+            # Mantém compatibilidade com candidatos legados sem matrícula associada.
+            candidato.nome_completo = request.POST.get('nome_completo', candidato.nome_completo)
+            candidato.cargo = request.POST.get('cargo', candidato.cargo)
+            candidato.setor = request.POST.get('setor', candidato.setor)
+            candidato.unidade = request.POST.get('unidade', candidato.unidade)
 
         # Atualiza a eleição vinculada
         eleicao_id = request.POST.get('eleicao_id')
@@ -241,22 +284,26 @@ def home(request):
 
 # Eleitores
 
-@login_required
+@eleitor_senior_elegivel
 def candidatos(request):
     eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
-    candidatos = Candidato.objects.filter(eleicao=eleicao_vigente).order_by('nome_completo') if eleicao_vigente else []
+    candidatos = candidatos_elegiveis_para_voto(eleicao_vigente).order_by('nome_completo') if eleicao_vigente else []
     
     return render(request, 'eleicao/candidatos.html', {
         'candidatos': candidatos,
         'eleicao_vigente': eleicao_vigente  # Adicione esta linha
     })
 
-@login_required
+@eleitor_senior_elegivel
 def confirmar_voto(request, candidato_id):
-    candidato = get_object_or_404(Candidato, id=candidato_id)
+    eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
+    candidato = get_object_or_404(
+        candidatos_elegiveis_para_voto(eleicao_vigente),
+        id=candidato_id,
+    )
     return render(request, 'eleicao/confirmar_voto.html', {'candidato': candidato})
 
-@login_required
+@eleitor_senior_elegivel
 def confirmar_voto_branco(request):
     # Verifica se há eleição vigente
     eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
@@ -266,15 +313,19 @@ def confirmar_voto_branco(request):
     
     return render(request, 'eleicao/confirmar_voto_branco.html')
 
-@login_required
+@eleitor_senior_elegivel
 def registrar_voto(request, candidato_id):
     eleitor = get_object_or_404(Eleitor, user=request.user)
-    candidato = get_object_or_404(Candidato, id=candidato_id)
     eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
 
     if not eleicao_vigente:
         messages.error(request, "Não há eleição vigente no momento.")
         return redirect('candidatos')
+
+    candidato = get_object_or_404(
+        candidatos_elegiveis_para_voto(eleicao_vigente),
+        id=candidato_id,
+    )
 
     # CORREÇÃO: Verifica se já votou nesta eleição específica
     if Voto.objects.filter(eleitor=eleitor, eleicao=eleicao_vigente).exists():
@@ -294,7 +345,7 @@ def registrar_voto(request, candidato_id):
 
     return render(request, "eleicao/protocolo_voto.html", {"voto": voto})
 
-@login_required
+@eleitor_senior_elegivel
 def registrar_voto_branco(request):
     eleitor = get_object_or_404(Eleitor, user=request.user)
     eleicao_vigente = Eleicao.objects.filter(vigente=True).first()
@@ -320,7 +371,7 @@ def registrar_voto_branco(request):
 
     return render(request, "eleicao/protocolo_voto.html", {"voto": voto})
 
-@login_required
+@eleitor_senior_elegivel
 def protocolo_voto(request, voto_id):
     voto = get_object_or_404(Voto, id=voto_id, eleitor__user=request.user)
     return render(request, 'eleicao/protocolo_voto.html', {'voto': voto})
